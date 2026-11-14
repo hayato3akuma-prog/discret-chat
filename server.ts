@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import express from 'express';
+import * as webpush from 'web-push';
 import { WebSocket, WebSocketServer } from 'ws';
 
 interface StoredUser {
@@ -79,6 +80,24 @@ interface StoredFriendRequest {
   createdAt: number;
 }
 
+interface StoredPushSubscription {
+  endpoint: string;
+  expirationTime: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  discreetMode?: boolean;
+  userAgent?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface VapidKeyPair {
+  publicKey: string;
+  privateKey: string;
+}
+
 interface VaultDiskState {
   users: StoredUser[];
   messages: StoredMessage[];
@@ -88,6 +107,8 @@ interface VaultDiskState {
   friendships: Record<string, string[]>;
   friendRequests: StoredFriendRequest[];
   blocks: Record<string, string[]>;
+  pushSubscriptions: Record<string, StoredPushSubscription[]>;
+  vapidKeys?: VapidKeyPair;
 }
 
 interface PendingChallenge {
@@ -120,6 +141,7 @@ function loadVault(): VaultDiskState {
         friendships: {},
         friendRequests: [],
         blocks: {},
+        pushSubscriptions: {},
       };
     }
     const raw = fs.readFileSync(VAULT_FILE, 'utf8');
@@ -139,6 +161,16 @@ function loadVault(): VaultDiskState {
         : [],
       blocks:
         parsed.blocks && typeof parsed.blocks === 'object' ? parsed.blocks : {},
+      pushSubscriptions:
+        parsed.pushSubscriptions && typeof parsed.pushSubscriptions === 'object'
+          ? parsed.pushSubscriptions
+          : {},
+      vapidKeys:
+        parsed.vapidKeys &&
+        typeof parsed.vapidKeys.publicKey === 'string' &&
+        typeof parsed.vapidKeys.privateKey === 'string'
+          ? parsed.vapidKeys
+          : undefined,
     };
   } catch (err) {
     console.error('Failed to load vault.json, initializing fresh store:', err);
@@ -151,6 +183,7 @@ function loadVault(): VaultDiskState {
       friendships: {},
       friendRequests: [],
       blocks: {},
+      pushSubscriptions: {},
     };
   }
 }
@@ -237,6 +270,95 @@ function sendToUser(userId: string, payload: unknown) {
       ws.send(serialized);
     }
   }
+}
+
+function resolveVapidKeys(): VapidKeyPair {
+  const envPub = process.env.VAPID_PUBLIC_KEY?.trim();
+  const envPriv = process.env.VAPID_PRIVATE_KEY?.trim();
+  if (envPub && envPriv) {
+    return { publicKey: envPub, privateKey: envPriv };
+  }
+  if (state.vapidKeys?.publicKey && state.vapidKeys?.privateKey) {
+    return state.vapidKeys;
+  }
+  const generated = webpush.generateVAPIDKeys();
+  state.vapidKeys = generated;
+  schedulePersist();
+  return generated;
+}
+
+const vapidKeys = resolveVapidKeys();
+const vapidSubject = process.env.VAPID_SUBJECT?.trim() || 'mailto:security@discret.app';
+webpush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
+
+interface PushNotificationBuildContext {
+  title: string;
+  body: string;
+  discreetTitle?: string;
+  discreetBody?: string;
+  tag: string;
+  forceShow?: boolean;
+  data: Record<string, unknown>;
+}
+
+async function sendPushToUser(
+  userId: string,
+  payload: PushNotificationBuildContext
+): Promise<{ sent: number; failed: number; removed: number }> {
+  const subs = state.pushSubscriptions[userId];
+  if (!Array.isArray(subs) || subs.length === 0) {
+    return { sent: 0, failed: 0, removed: 0 };
+  }
+
+  let sent = 0;
+  let failed = 0;
+  const invalidEndpoints = new Set<string>();
+
+  await Promise.all(
+    subs.map(async (sub) => {
+      const useDiscreet = Boolean(sub.discreetMode);
+      const bodyPayload = JSON.stringify({
+        title: useDiscreet ? payload.discreetTitle || 'DISCRET' : payload.title,
+        body: useDiscreet
+          ? payload.discreetBody || 'Nouvelle activité chiffrée reçue.'
+          : payload.body,
+        tag: useDiscreet ? 'discret-activity' : payload.tag,
+        forceShow: Boolean(payload.forceShow),
+        data: payload.data,
+      });
+
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            expirationTime: sub.expirationTime,
+            keys: sub.keys,
+          },
+          bodyPayload,
+          { TTL: 86400, urgency: 'high' }
+        );
+        sent += 1;
+      } catch (err: unknown) {
+        failed += 1;
+        const statusCode =
+          typeof err === 'object' && err !== null && 'statusCode' in err
+            ? Number((err as { statusCode?: number }).statusCode)
+            : 0;
+        if (statusCode === 404 || statusCode === 410) {
+          invalidEndpoints.add(sub.endpoint);
+        }
+      }
+    })
+  );
+
+  if (invalidEndpoints.size > 0) {
+    state.pushSubscriptions[userId] = subs.filter(
+      (s) => !invalidEndpoints.has(s.endpoint)
+    );
+    schedulePersist();
+  }
+
+  return { sent, failed, removed: invalidEndpoints.size };
 }
 
 function isBlockedBy(blockerId: string, targetId: string): boolean {
@@ -859,6 +981,19 @@ async function startServer() {
     sendToUser(toId, { type: 'message:new', message: envelope, sender: toPublicUser(me) });
     if (toId !== me.id) {
       sendToUser(me.id, { type: 'message:new', message: envelope, sender: toPublicUser(me) });
+      void sendPushToUser(toId, {
+        title: `Nouveau message de ${me.displayName}`,
+        body: 'Message chiffré reçu • Appuyez pour déchiffrer',
+        discreetTitle: 'DISCRET',
+        discreetBody: 'Nouveau message chiffré reçu',
+        tag: `dm-msg-${envelope.id}`,
+        data: {
+          url: `/?open=dm&peerId=${encodeURIComponent(me.id)}`,
+          type: 'dm',
+          peerId: me.id,
+          messageId: envelope.id,
+        },
+      });
     }
 
     res.status(201).json({ message: envelope });
@@ -1250,6 +1385,23 @@ async function startServer() {
       sender: toPublicUser(me),
     });
 
+    for (const memberId of group.memberIds) {
+      if (memberId === me.id) continue;
+      void sendPushToUser(memberId, {
+        title: `${group.name} • ${me.displayName}`,
+        body: 'Nouveau message de groupe chiffré',
+        discreetTitle: 'DISCRET',
+        discreetBody: 'Nouvelle activité de groupe chiffrée',
+        tag: `group-msg-${envelope.id}`,
+        data: {
+          url: `/?open=group&groupId=${encodeURIComponent(group.id)}`,
+          type: 'group',
+          groupId: group.id,
+          messageId: envelope.id,
+        },
+      });
+    }
+
     res.status(201).json({ message: envelope });
   });
 
@@ -1358,6 +1510,19 @@ async function startServer() {
       });
       sendToUser(me.id, { type: 'friend:sync' });
       sendToUser(target.id, { type: 'friend:sync' });
+
+      void sendPushToUser(target.id, {
+        title: `Demande d'ami • ${me.displayName}`,
+        body: `${me.handle} souhaite rejoindre vos contacts DISCRET.`,
+        discreetTitle: 'DISCRET',
+        discreetBody: 'Nouvelle demande de contact reçue',
+        tag: `friend-req-${request.id}`,
+        data: {
+          url: '/?open=friends',
+          type: 'friend_request',
+          fromUserId: me.id,
+        },
+      });
     }
 
     res.status(201).json({ status: 'requested', ...buildFriendsSnapshot(me.id) });
@@ -1393,6 +1558,19 @@ async function startServer() {
     sendToUser(pending.fromId, { type: 'friend:accepted', byUser: toPublicUser(me) });
     sendToUser(me.id, { type: 'friend:sync' });
     sendToUser(pending.fromId, { type: 'friend:sync' });
+
+    void sendPushToUser(pending.fromId, {
+      title: `Demande acceptée • ${me.displayName}`,
+      body: `${me.displayName} fait maintenant partie de votre liste d'amis.`,
+      discreetTitle: 'DISCRET',
+      discreetBody: 'Une demande de contact a été acceptée',
+      tag: `friend-acc-${me.id}`,
+      data: {
+        url: `/?open=dm&peerId=${encodeURIComponent(me.id)}`,
+        type: 'friend_accepted',
+        peerId: me.id,
+      },
+    });
 
     res.json({ ok: true, ...buildFriendsSnapshot(me.id) });
   });
@@ -1482,6 +1660,138 @@ async function startServer() {
     sendToUser(targetUserId, { type: 'friend:sync' });
 
     res.json({ ok: true, ...buildFriendsSnapshot(me.id) });
+  });
+
+  // ============================================================================
+  // Web Push Notifications API (VAPID)
+  // ============================================================================
+
+  app.get('/api/push/vapid-public-key', requireAuth, (_req, res) => {
+    res.json({ publicKey: vapidKeys.publicKey });
+  });
+
+  app.get('/api/push/status', requireAuth, (req, res) => {
+    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const subs = state.pushSubscriptions[me.id] ?? [];
+    res.json({
+      count: subs.length,
+      subscriptions: subs.map((s) => ({
+        endpoint: s.endpoint,
+        discreetMode: Boolean(s.discreetMode),
+        updatedAt: s.updatedAt,
+      })),
+    });
+  });
+
+  app.post('/api/push/subscribe', requireAuth, (req, res) => {
+    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const { subscription, discreetMode } = req.body ?? {};
+    const endpoint = subscription?.endpoint;
+    const p256dh = subscription?.keys?.p256dh;
+    const auth = subscription?.keys?.auth;
+
+    if (
+      typeof endpoint !== 'string' ||
+      !endpoint.startsWith('https://') ||
+      typeof p256dh !== 'string' ||
+      typeof auth !== 'string'
+    ) {
+      res.status(400).json({ error: 'Abonnement Web Push invalide.' });
+      return;
+    }
+
+    if (!state.pushSubscriptions[me.id]) {
+      state.pushSubscriptions[me.id] = [];
+    }
+
+    const now = Date.now();
+    const existingIdx = state.pushSubscriptions[me.id].findIndex(
+      (s) => s.endpoint === endpoint
+    );
+
+    const record: StoredPushSubscription = {
+      endpoint,
+      expirationTime:
+        typeof subscription.expirationTime === 'number'
+          ? subscription.expirationTime
+          : null,
+      keys: { p256dh, auth },
+      discreetMode:
+        typeof discreetMode === 'boolean'
+          ? discreetMode
+          : existingIdx >= 0
+            ? Boolean(state.pushSubscriptions[me.id][existingIdx].discreetMode)
+            : false,
+      userAgent:
+        typeof req.headers['user-agent'] === 'string'
+          ? req.headers['user-agent'].slice(0, 180)
+          : undefined,
+      createdAt:
+        existingIdx >= 0 ? state.pushSubscriptions[me.id][existingIdx].createdAt : now,
+      updatedAt: now,
+    };
+
+    if (existingIdx >= 0) {
+      state.pushSubscriptions[me.id][existingIdx] = record;
+    } else {
+      state.pushSubscriptions[me.id].push(record);
+    }
+
+    schedulePersist();
+    res.json({
+      ok: true,
+      count: state.pushSubscriptions[me.id].length,
+      discreetMode: Boolean(record.discreetMode),
+    });
+  });
+
+  app.patch('/api/push/preferences', requireAuth, (req, res) => {
+    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const { endpoint, discreetMode } = req.body ?? {};
+    if (typeof discreetMode !== 'boolean') {
+      res.status(400).json({ error: 'Préférence invalide.' });
+      return;
+    }
+
+    const subs = state.pushSubscriptions[me.id] ?? [];
+    for (const sub of subs) {
+      if (!endpoint || sub.endpoint === endpoint) {
+        sub.discreetMode = discreetMode;
+        sub.updatedAt = Date.now();
+      }
+    }
+    schedulePersist();
+    res.json({ ok: true, discreetMode });
+  });
+
+  app.post('/api/push/unsubscribe', requireAuth, (req, res) => {
+    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const { endpoint } = req.body ?? {};
+    const subs = state.pushSubscriptions[me.id] ?? [];
+    if (typeof endpoint === 'string' && endpoint.length > 0) {
+      state.pushSubscriptions[me.id] = subs.filter((s) => s.endpoint !== endpoint);
+    } else {
+      state.pushSubscriptions[me.id] = [];
+    }
+    schedulePersist();
+    res.json({ ok: true, count: state.pushSubscriptions[me.id].length });
+  });
+
+  app.post('/api/push/test', requireAuth, async (req, res) => {
+    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const result = await sendPushToUser(me.id, {
+      title: 'DISCRET • Test Push Service Worker',
+      body: 'Les notifications push en arrière-plan sont actives sur cet appareil.',
+      discreetTitle: 'DISCRET',
+      discreetBody: 'Test de notification discrète réussi',
+      tag: `discret-test-${Date.now()}`,
+      forceShow: true,
+      data: {
+        url: '/',
+        type: 'test',
+      },
+    });
+    res.json(result);
   });
 
   const server = http.createServer(app);

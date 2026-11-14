@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Ban,
+  Bell,
+  BellRing,
   Check,
   CheckCheck,
   Clock,
@@ -19,6 +21,8 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import { showLocalServiceWorkerNotification } from '../lib/pushNotifications';
 import {
   decryptAndVerifyGroupMessage,
   decryptAndVerifyMessage,
@@ -47,6 +51,7 @@ import { FriendsModal } from './FriendsModal';
 import { GroupAvatar } from './GroupAvatar';
 import { GroupInfoModal } from './GroupInfoModal';
 import { NewContactModal } from './NewContactModal';
+import { NotificationsModal } from './NotificationsModal';
 import { PeerProfileModal } from './PeerProfileModal';
 import { ProfileBanner } from './ProfileBanner';
 import { ProfileModal } from './ProfileModal';
@@ -138,6 +143,22 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [viewedProfileUser, setViewedProfileUser] = useState<PublicUser | null>(null);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
+
+  const push = usePushNotifications(session.token);
+  const pushStateRef = useRef({
+    isSubscribed: push.isSubscribed,
+    permission: push.permission,
+    discreetMode: push.discreetMode,
+  });
+
+  useEffect(() => {
+    pushStateRef.current = {
+      isSubscribed: push.isSubscribed,
+      permission: push.permission,
+      discreetMode: push.discreetMode,
+    };
+  }, [push.isSubscribed, push.permission, push.discreetMode]);
 
   const [friendsSnapshot, setFriendsSnapshot] = useState<FriendsSnapshot>({
     friends: [],
@@ -155,6 +176,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const wsRef = useRef<WebSocket | null>(null);
   const activeTargetRef = useRef<ActiveTarget | null>(null);
   const groupsRef = useRef<SidebarGroup[]>([]);
+  const conversationsRef = useRef<SidebarConversation[]>([]);
   const groupKeysCacheRef = useRef<Map<string, CryptoKey>>(new Map());
   const typingTimeoutRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -166,6 +188,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   useEffect(() => {
     groupsRef.current = groups;
   }, [groups]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   function handleChangeGlassIntensity(val: GlassIntensity) {
     setGlassIntensity(val);
@@ -575,6 +601,26 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             payload.type === 'block:update'
           ) {
             loadFriends();
+            if (
+              (payload.type === 'friend:request' || payload.type === 'friend:accepted') &&
+              document.visibilityState !== 'visible' &&
+              !pushStateRef.current.isSubscribed &&
+              pushStateRef.current.permission === 'granted'
+            ) {
+              const discreet = pushStateRef.current.discreetMode;
+              void showLocalServiceWorkerNotification({
+                title: discreet
+                  ? 'DISCRET'
+                  : payload.type === 'friend:request'
+                    ? "Nouvelle demande d'ami"
+                    : "Demande d'ami acceptée",
+                body: discreet
+                  ? 'Nouvelle activité sur votre compte'
+                  : 'Ouvrez DISCRET pour consulter vos contacts.',
+                tag: `friend-${payload.type}-${Date.now()}`,
+                data: { url: '/?open=friends', type: 'friend_request' },
+              });
+            }
           } else if (payload.type === 'profile:update' && payload.user) {
             const updated = payload.user;
             if (updated.id === session.user.id) {
@@ -735,6 +781,29 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 )
                 .sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0))
             );
+
+            if (
+              dec.fromId !== session.user.id &&
+              document.visibilityState !== 'visible' &&
+              !pushStateRef.current.isSubscribed &&
+              pushStateRef.current.permission === 'granted'
+            ) {
+              const discreet = pushStateRef.current.discreetMode;
+              void showLocalServiceWorkerNotification({
+                title: discreet
+                  ? 'DISCRET'
+                  : `${targetGroup.name} • ${dec.sender?.displayName ?? 'Membre'}`,
+                body: discreet
+                  ? 'Nouvelle activité de groupe chiffrée'
+                  : 'Nouveau message de groupe chiffré',
+                tag: `group-msg-${env.id}`,
+                data: {
+                  url: `/?open=group&groupId=${encodeURIComponent(targetGroup.id)}`,
+                  type: 'group',
+                  groupId: targetGroup.id,
+                },
+              });
+            }
           } else if (payload.type === 'message:new' && payload.message) {
             const env = payload.message as EncryptedMessageEnvelope;
             const peerId =
@@ -809,6 +878,29 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 (a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0)
               );
             });
+
+            if (
+              env.fromId !== session.user.id &&
+              document.visibilityState !== 'visible' &&
+              !pushStateRef.current.isSubscribed &&
+              pushStateRef.current.permission === 'granted'
+            ) {
+              const discreet = pushStateRef.current.discreetMode;
+              void showLocalServiceWorkerNotification({
+                title: discreet
+                  ? 'DISCRET'
+                  : `Nouveau message de ${peerObj.displayName}`,
+                body: discreet
+                  ? 'Nouveau message chiffré reçu'
+                  : 'Message chiffré reçu • Appuyez pour déchiffrer',
+                tag: `dm-msg-${env.id}`,
+                data: {
+                  url: `/?open=dm&peerId=${encodeURIComponent(peerObj.id)}`,
+                  type: 'dm',
+                  peerId: peerObj.id,
+                },
+              });
+            }
           }
         } catch {
           // Ignore malformed frame
@@ -842,6 +934,86 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     markConversationRead,
     onUpdateUser,
   ]);
+
+  const openFromNotificationData = useCallback(
+    async (data: { type?: string; peerId?: string; groupId?: string } | null | undefined) => {
+      if (!data) return;
+      if (data.type === 'friend_request') {
+        setIsFriendsModalOpen(true);
+        return;
+      }
+      if (typeof data.groupId === 'string' && data.groupId) {
+        const existingGroup = groupsRef.current.find(
+          (g) => g.group.id === data.groupId
+        )?.group;
+        if (existingGroup) {
+          setActiveTarget({ kind: 'group', group: existingGroup });
+          setMobileShowChat(true);
+          return;
+        }
+        await loadAllThreads();
+        const reloaded = groupsRef.current.find(
+          (g) => g.group.id === data.groupId
+        )?.group;
+        if (reloaded) {
+          setActiveTarget({ kind: 'group', group: reloaded });
+          setMobileShowChat(true);
+        }
+        return;
+      }
+      if (typeof data.peerId === 'string' && data.peerId) {
+        const existingPeer = conversationsRef.current.find(
+          (c) => c.peer.id === data.peerId
+        )?.peer;
+        if (existingPeer) {
+          setActiveTarget({ kind: 'dm', peer: existingPeer });
+          setMobileShowChat(true);
+          return;
+        }
+        const res = await fetch(
+          `/api/users/${encodeURIComponent(data.peerId)}`,
+          { headers: { Authorization: `Bearer ${session.token}` } }
+        ).catch(() => null);
+        if (res && res.ok) {
+          const json = (await res.json()) as { user?: PublicUser };
+          if (json.user) {
+            setActiveTarget({ kind: 'dm', peer: json.user });
+            setMobileShowChat(true);
+          }
+        }
+      }
+    },
+    [loadAllThreads, session.token]
+  );
+
+  // Listen for Service Worker notification clicks & initial URL deep-link params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openKind = params.get('open');
+    const peerIdParam = params.get('peerId');
+    const groupIdParam = params.get('groupId');
+    if (openKind) {
+      if (openKind === 'friends') {
+        void openFromNotificationData({ type: 'friend_request' });
+      } else if (openKind === 'dm' && peerIdParam) {
+        void openFromNotificationData({ type: 'dm', peerId: peerIdParam });
+      } else if (openKind === 'group' && groupIdParam) {
+        void openFromNotificationData({ type: 'group', groupId: groupIdParam });
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    if (!('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'discret:notification-click') {
+        void openFromNotificationData(event.data.data);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    };
+  }, [openFromNotificationData]);
 
   function getRelationship(userId: string): RelationshipState {
     if (userId === session.user.id) return 'self';
@@ -1351,6 +1523,22 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
             >
               <SlidersHorizontal className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsNotificationsModalOpen(true)}
+              title="Notifications push en arrière-plan"
+              aria-label="Notifications push"
+              className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+            >
+              {push.isSubscribed && push.permission === 'granted' ? (
+                <BellRing className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <Bell className="h-4 w-4" />
+              )}
+              {push.isSubscribed && push.permission === 'granted' ? (
+                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              ) : null}
             </button>
             <button
               type="button"
@@ -2249,6 +2437,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       <AppInstallModal
         isOpen={isInstallModalOpen}
         onClose={() => setIsInstallModalOpen(false)}
+      />
+
+      <NotificationsModal
+        isOpen={isNotificationsModalOpen}
+        onClose={() => setIsNotificationsModalOpen(false)}
+        supported={push.supported}
+        inIframe={push.inIframe}
+        permission={push.permission}
+        isSubscribed={push.isSubscribed}
+        discreetMode={push.discreetMode}
+        loading={push.loading}
+        testing={push.testing}
+        error={push.error}
+        statusMessage={push.statusMessage}
+        onEnable={push.enablePush}
+        onDisable={push.disablePush}
+        onToggleDiscreetMode={push.toggleDiscreetMode}
+        onSendTest={push.sendTestPush}
       />
     </div>
   );
