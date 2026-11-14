@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="112" fill="#050507"/>
+  <rect x="16" y="16" width="480" height="480" rx="98" stroke="rgba(255,255,255,0.12)" stroke-width="4" fill="url(#bgGrad)"/>
+  <defs>
+    <radialGradient id="bgGrad" cx="0.5" cy="0.3" r="0.7">
+      <stop offset="0%" stop-color="#1C1C24"/>
+      <stop offset="100%" stop-color="#050507"/>
+    </radialGradient>
+  </defs>
+  <!-- Architectural D + Lock Monolith -->
+  <path d="M168 136H256C322.274 136 376 189.726 376 256C376 322.274 322.274 376 256 376H168V136Z" stroke="#F4F4F5" stroke-width="28" stroke-linejoin="round"/>
+  <circle cx="256" cy="242" r="24" fill="#F4F4F5"/>
+  <path d="M256 262V304" stroke="#F4F4F5" stroke-width="20" stroke-linecap="round"/>
+</svg>

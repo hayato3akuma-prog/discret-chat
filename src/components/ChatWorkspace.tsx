@@ -1,0 +1,2255 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  Ban,
+  Check,
+  CheckCheck,
+  Clock,
+  Copy,
+  Eye,
+  Lock,
+  Plus,
+  Search,
+  Send,
+  ShieldCheck,
+  ShieldOff,
+  SlidersHorizontal,
+  Trash2,
+  UserCheck,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import {
+  decryptAndVerifyGroupMessage,
+  decryptAndVerifyMessage,
+  encryptAndSignGroupMessage,
+  encryptAndSignMessage,
+  getCanonicalConversationId,
+  importGroupAesKey,
+  unwrapGroupKeyBytes,
+} from '../lib/crypto';
+import type {
+  ConversationSummary,
+  DecryptedMessage,
+  EncryptedMessageEnvelope,
+  EphemeralDuration,
+  FriendsSnapshot,
+  GlassIntensity,
+  GroupInfo,
+  GroupMessageEnvelope,
+  PublicUser,
+  RelationshipState,
+  UnlockedSession,
+} from '../types';
+import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
+import { CreateGroupModal } from './CreateGroupModal';
+import { FriendsModal } from './FriendsModal';
+import { GroupAvatar } from './GroupAvatar';
+import { GroupInfoModal } from './GroupInfoModal';
+import { NewContactModal } from './NewContactModal';
+import { PeerProfileModal } from './PeerProfileModal';
+import { ProfileBanner } from './ProfileBanner';
+import { ProfileModal } from './ProfileModal';
+import { SecurityModal } from './SecurityModal';
+import { TONE_CLASSES, UserAvatar } from './UserAvatar';
+
+interface ChatWorkspaceProps {
+  session: UnlockedSession;
+  onUpdateUser: (user: PublicUser) => void;
+  onLockSession: () => void;
+}
+
+interface SidebarConversation {
+  peer: PublicUser;
+  lastMessagePreview: string | null;
+  lastTimestamp: number | null;
+  unreadCount: number;
+}
+
+interface SidebarGroup {
+  group: GroupInfo;
+  lastMessagePreview: string | null;
+  lastTimestamp: number | null;
+}
+
+type ActiveTarget =
+  | { kind: 'dm'; peer: PublicUser }
+  | { kind: 'group'; group: GroupInfo };
+
+const EPHEMERAL_OPTIONS: { value: EphemeralDuration; label: string }[] = [
+  { value: 0, label: 'Permanent' },
+  { value: 30, label: '30 sec' },
+  { value: 300, label: '5 min' },
+  { value: 86400, label: '24 h' },
+];
+
+const GLASS_PREF_KEY = 'discret_glass_intensity_v1';
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatRemaining(expiresAt: number, now: number): string {
+  const diffSec = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+  if (diffSec < 60) return `${diffSec}s`;
+  if (diffSec < 3600) return `${Math.ceil(diffSec / 60)}m`;
+  return `${Math.ceil(diffSec / 3600)}h`;
+}
+
+export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
+  session,
+  onUpdateUser,
+  onLockSession,
+}) => {
+  const [conversations, setConversations] = useState<SidebarConversation[]>([]);
+  const [groups, setGroups] = useState<SidebarGroup[]>([]);
+  const [loadingConversations, setLoadingConversations] = useState(true);
+
+  const [activeTarget, setActiveTarget] = useState<ActiveTarget | null>(null);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
+
+  const [messages, setMessages] = useState<DecryptedMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [composerText, setComposerText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const [sidebarFilter, setSidebarFilter] = useState('');
+  const [sidebarTab, setSidebarTab] = useState<'all' | 'direct' | 'groups'>('all');
+  const [ephemeralDuration, setEphemeralDuration] = useState<EphemeralDuration>(0);
+  const [inspectorMode, setInspectorMode] = useState(false);
+
+  const [glassIntensity, setGlassIntensity] = useState<GlassIntensity>(() => {
+    const saved = window.localStorage.getItem(GLASS_PREF_KEY);
+    if (saved === 'subtle' || saved === 'balanced' || saved === 'deep') {
+      return saved;
+    }
+    return 'balanced';
+  });
+
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [isFriendsModalOpen, setIsFriendsModalOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [viewedProfileUser, setViewedProfileUser] = useState<PublicUser | null>(null);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+
+  const [friendsSnapshot, setFriendsSnapshot] = useState<FriendsSnapshot>({
+    friends: [],
+    incoming: [],
+    outgoing: [],
+    blocked: [],
+    blockedByIds: [],
+  });
+
+  const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({});
+  const [typingGroups, setTypingGroups] = useState<Record<string, string | null>>({});
+  const [copiedHandle, setCopiedHandle] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const activeTargetRef = useRef<ActiveTarget | null>(null);
+  const groupsRef = useRef<SidebarGroup[]>([]);
+  const groupKeysCacheRef = useRef<Map<string, CryptoKey>>(new Map());
+  const typingTimeoutRef = useRef<number | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    activeTargetRef.current = activeTarget;
+  }, [activeTarget]);
+
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+
+  function handleChangeGlassIntensity(val: GlassIntensity) {
+    setGlassIntensity(val);
+    try {
+      window.localStorage.setItem(GLASS_PREF_KEY, val);
+    } catch {
+      // Ignore storage error
+    }
+  }
+
+  // Tick every second when ephemeral messages exist
+  useEffect(() => {
+    const hasEphemeral = messages.some((m) => m.expiresAt !== null);
+    if (!hasEphemeral) return;
+    const interval = window.setInterval(() => {
+      const now = Date.now();
+      setNowTick(now);
+      setMessages((prev) =>
+        prev.filter((m) => m.expiresAt === null || m.expiresAt > now)
+      );
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [messages]);
+
+  const getGroupAesKey = useCallback(
+    async (group: GroupInfo): Promise<CryptoKey | null> => {
+      const cached = groupKeysCacheRef.current.get(group.id);
+      if (cached) return cached;
+
+      const myEnvelope = group.keyEnvelopes[session.user.id];
+      if (!myEnvelope) return null;
+
+      let wrapperPub = group.members.find(
+        (m) => m.id === myEnvelope.wrappedByUserId
+      )?.ecdhPublicJwk;
+
+      if (!wrapperPub) {
+        const res = await fetch(
+          `/api/users/${encodeURIComponent(myEnvelope.wrappedByUserId)}`,
+          { headers: { Authorization: `Bearer ${session.token}` } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          wrapperPub = (data.user as PublicUser).ecdhPublicJwk;
+        }
+      }
+      if (!wrapperPub) return null;
+
+      const rawBytes = await unwrapGroupKeyBytes({
+        myEcdhPrivateKey: session.ecdhPrivateKey,
+        wrapperEcdhPublicJwk: wrapperPub,
+        myUserId: session.user.id,
+        wrappedByUserId: myEnvelope.wrappedByUserId,
+        iv: myEnvelope.iv,
+        wrappedKey: myEnvelope.wrappedKey,
+      });
+
+      const key = await importGroupAesKey(rawBytes);
+      groupKeysCacheRef.current.set(group.id, key);
+      return key;
+    },
+    [session]
+  );
+
+  const decryptEnvelope = useCallback(
+    async (
+      env: EncryptedMessageEnvelope,
+      peer: PublicUser
+    ): Promise<DecryptedMessage> => {
+      const senderEcdsaPublicJwk =
+        env.fromId === session.user.id
+          ? session.user.ecdsaPublicJwk
+          : peer.ecdsaPublicJwk;
+
+      const result = await decryptAndVerifyMessage({
+        id: env.id,
+        conversationId: env.conversationId,
+        fromId: env.fromId,
+        toId: env.toId,
+        ciphertext: env.ciphertext,
+        iv: env.iv,
+        signature: env.signature,
+        timestamp: env.timestamp,
+        myEcdhPrivateKey: session.ecdhPrivateKey,
+        peerEcdhPublicJwk: peer.ecdhPublicJwk,
+        senderEcdsaPublicJwk,
+      });
+
+      return {
+        id: env.id,
+        conversationId: env.conversationId,
+        fromId: env.fromId,
+        toId: env.toId,
+        text: result.text,
+        timestamp: env.timestamp,
+        expiresAt: env.expiresAt,
+        readAt: env.readAt,
+        verified: result.verified,
+        decryptionError: result.error,
+        rawCiphertext: env.ciphertext,
+        rawIv: env.iv,
+        rawSignature: env.signature,
+      };
+    },
+    [session]
+  );
+
+  const decryptGroupEnvelope = useCallback(
+    async (
+      env: GroupMessageEnvelope,
+      group: GroupInfo,
+      fallbackSender?: PublicUser
+    ): Promise<DecryptedMessage> => {
+      const groupKey = await getGroupAesKey(group);
+      const sender =
+        group.members.find((m) => m.id === env.fromId) ?? fallbackSender;
+
+      if (!groupKey) {
+        return {
+          id: env.id,
+          conversationId: group.id,
+          fromId: env.fromId,
+          toId: group.id,
+          groupId: group.id,
+          sender,
+          text: 'Clé de groupe indisponible',
+          timestamp: env.timestamp,
+          expiresAt: env.expiresAt,
+          readAt: null,
+          verified: false,
+          decryptionError: true,
+          rawCiphertext: env.ciphertext,
+          rawIv: env.iv,
+          rawSignature: env.signature,
+        };
+      }
+
+      const result = await decryptAndVerifyGroupMessage({
+        id: env.id,
+        groupId: env.groupId,
+        fromId: env.fromId,
+        ciphertext: env.ciphertext,
+        iv: env.iv,
+        signature: env.signature,
+        timestamp: env.timestamp,
+        groupAesKey: groupKey,
+        senderEcdsaPublicJwk: sender?.ecdsaPublicJwk,
+      });
+
+      return {
+        id: env.id,
+        conversationId: group.id,
+        fromId: env.fromId,
+        toId: group.id,
+        groupId: group.id,
+        sender,
+        text: result.text,
+        timestamp: env.timestamp,
+        expiresAt: env.expiresAt,
+        readAt: null,
+        verified: result.verified,
+        decryptionError: result.error,
+        rawCiphertext: env.ciphertext,
+        rawIv: env.iv,
+        rawSignature: env.signature,
+      };
+    },
+    [getGroupAesKey]
+  );
+
+  const loadAllThreads = useCallback(async () => {
+    try {
+      const [convRes, grpRes] = await Promise.all([
+        fetch('/api/conversations', {
+          headers: { Authorization: `Bearer ${session.token}` },
+        }),
+        fetch('/api/groups', {
+          headers: { Authorization: `Bearer ${session.token}` },
+        }),
+      ]);
+
+      if (convRes.status === 401 || grpRes.status === 401) {
+        onLockSession();
+        return;
+      }
+
+      const convData = (await convRes.json()) as {
+        conversations: ConversationSummary[];
+      };
+      const grpData = (await grpRes.json()) as { groups: GroupInfo[] };
+
+      const convItems = await Promise.all(
+        (convData.conversations ?? []).map(async (conv) => {
+          let preview: string | null = null;
+          if (conv.lastMessage) {
+            const dec = await decryptEnvelope(conv.lastMessage, conv.peer);
+            preview = dec.text;
+          }
+          return {
+            peer: conv.peer,
+            lastMessagePreview: preview,
+            lastTimestamp: conv.lastMessage?.timestamp ?? null,
+            unreadCount: conv.unreadCount,
+          };
+        })
+      );
+
+      const groupItems = await Promise.all(
+        (grpData.groups ?? []).map(async (g) => {
+          let preview: string | null = null;
+          if (g.lastMessage) {
+            const dec = await decryptGroupEnvelope(g.lastMessage, g);
+            const prefix =
+              dec.fromId === session.user.id
+                ? 'Vous : '
+                : dec.sender
+                  ? `${dec.sender.displayName} : `
+                  : '';
+            preview = `${prefix}${dec.text}`;
+          }
+          return {
+            group: g,
+            lastMessagePreview: preview,
+            lastTimestamp: g.lastMessage?.timestamp ?? g.createdAt,
+          };
+        })
+      );
+
+      setConversations(convItems);
+      setGroups(groupItems);
+
+      if (!activeTargetRef.current && convItems.length > 0) {
+        setActiveTarget({ kind: 'dm', peer: convItems[0].peer });
+      }
+    } catch {
+      // Keep current list on transient error
+    } finally {
+      setLoadingConversations(false);
+    }
+  }, [session.token, session.user.id, decryptEnvelope, decryptGroupEnvelope, onLockSession]);
+
+  const loadFriends = useCallback(async () => {
+    try {
+      const res = await fetch('/api/friends', {
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      if (res.status === 401) {
+        onLockSession();
+        return;
+      }
+      if (res.ok) {
+        const data = (await res.json()) as FriendsSnapshot;
+        setFriendsSnapshot({
+          friends: data.friends ?? [],
+          incoming: data.incoming ?? [],
+          outgoing: data.outgoing ?? [],
+          blocked: data.blocked ?? [],
+          blockedByIds: data.blockedByIds ?? [],
+        });
+      }
+    } catch {
+      // Ignore transient network errors
+    }
+  }, [session.token, onLockSession]);
+
+  const markConversationRead = useCallback(
+    async (peerId: string) => {
+      if (peerId === session.user.id) return;
+      try {
+        await fetch('/api/messages/read', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.token}`,
+          },
+          body: JSON.stringify({ peerId }),
+        });
+        setConversations((prev) =>
+          prev.map((c) => (c.peer.id === peerId ? { ...c, unreadCount: 0 } : c))
+        );
+      } catch {
+        // Ignore
+      }
+    },
+    [session.token, session.user.id]
+  );
+
+  const loadMessagesForTarget = useCallback(
+    async (target: ActiveTarget) => {
+      setLoadingMessages(true);
+      try {
+        if (target.kind === 'dm') {
+          const res = await fetch(
+            `/api/messages/${encodeURIComponent(target.peer.id)}`,
+            { headers: { Authorization: `Bearer ${session.token}` } }
+          );
+          if (res.status === 401) {
+            onLockSession();
+            return;
+          }
+          const data = (await res.json()) as {
+            messages: EncryptedMessageEnvelope[];
+          };
+          const decrypted = await Promise.all(
+            (data.messages ?? []).map((env) => decryptEnvelope(env, target.peer))
+          );
+          setMessages(decrypted);
+          await markConversationRead(target.peer.id);
+        } else {
+          const res = await fetch(
+            `/api/groups/${encodeURIComponent(target.group.id)}/messages`,
+            { headers: { Authorization: `Bearer ${session.token}` } }
+          );
+          if (res.status === 401) {
+            onLockSession();
+            return;
+          }
+          const data = (await res.json()) as {
+            messages: GroupMessageEnvelope[];
+          };
+          const decrypted = await Promise.all(
+            (data.messages ?? []).map((env) =>
+              decryptGroupEnvelope(env, target.group)
+            )
+          );
+          setMessages(decrypted);
+        }
+      } catch {
+        setMessages([]);
+      } finally {
+        setLoadingMessages(false);
+      }
+    },
+    [
+      session.token,
+      decryptEnvelope,
+      decryptGroupEnvelope,
+      markConversationRead,
+      onLockSession,
+    ]
+  );
+
+  useEffect(() => {
+    loadAllThreads();
+    loadFriends();
+  }, [loadAllThreads, loadFriends]);
+
+  const activeTargetId =
+    activeTarget?.kind === 'dm'
+      ? `dm:${activeTarget.peer.id}`
+      : activeTarget?.kind === 'group'
+        ? `group:${activeTarget.group.id}`
+        : null;
+
+  useEffect(() => {
+    if (!activeTargetRef.current) return;
+    loadMessagesForTarget(activeTargetRef.current);
+  }, [activeTargetId, loadMessagesForTarget]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, activeTargetId]);
+
+  // Real-time WebSocket connection with automatic reconnect
+  useEffect(() => {
+    let closedByUser = false;
+    let reconnectTimer: number | null = null;
+    let attempt = 0;
+
+    function connect() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(
+        session.token
+      )}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        attempt = 0;
+        loadAllThreads();
+        loadFriends();
+        if (activeTargetRef.current) {
+          loadMessagesForTarget(activeTargetRef.current);
+        }
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const payload = JSON.parse(String(event.data)) as {
+            type: string;
+            message?: EncryptedMessageEnvelope | GroupMessageEnvelope;
+            sender?: PublicUser;
+            user?: PublicUser;
+            group?: GroupInfo;
+            groupId?: string;
+            fromId?: string;
+            isTyping?: boolean;
+            messageIds?: string[];
+            readAt?: number;
+            messageId?: string;
+          };
+
+          if (
+            payload.type === 'friend:request' ||
+            payload.type === 'friend:accepted' ||
+            payload.type === 'friend:sync' ||
+            payload.type === 'block:update'
+          ) {
+            loadFriends();
+          } else if (payload.type === 'profile:update' && payload.user) {
+            const updated = payload.user;
+            if (updated.id === session.user.id) {
+              onUpdateUser(updated);
+            }
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.peer.id === updated.id ? { ...c, peer: updated } : c
+              )
+            );
+            setGroups((prev) =>
+              prev.map((sg) => ({
+                ...sg,
+                group: {
+                  ...sg.group,
+                  members: sg.group.members.map((m) =>
+                    m.id === updated.id ? updated : m
+                  ),
+                },
+              }))
+            );
+            setFriendsSnapshot((prev) => ({
+              ...prev,
+              friends: prev.friends.map((f) => (f.id === updated.id ? updated : f)),
+              blocked: prev.blocked.map((b) => (b.id === updated.id ? updated : b)),
+              incoming: prev.incoming.map((r) =>
+                r.fromUser.id === updated.id ? { ...r, fromUser: updated } : r
+              ),
+              outgoing: prev.outgoing.map((r) =>
+                r.toUser.id === updated.id ? { ...r, toUser: updated } : r
+              ),
+            }));
+            setViewedProfileUser((prev) =>
+              prev && prev.id === updated.id ? updated : prev
+            );
+            const cur = activeTargetRef.current;
+            if (cur?.kind === 'dm' && cur.peer.id === updated.id) {
+              setActiveTarget({ kind: 'dm', peer: updated });
+            } else if (cur?.kind === 'group') {
+              setActiveTarget({
+                kind: 'group',
+                group: {
+                  ...cur.group,
+                  members: cur.group.members.map((m) =>
+                    m.id === updated.id ? updated : m
+                  ),
+                },
+              });
+            }
+          } else if (payload.type === 'group:new' && payload.group) {
+            const g = payload.group;
+            setGroups((prev) => {
+              if (prev.some((item) => item.group.id === g.id)) return prev;
+              return [
+                {
+                  group: g,
+                  lastMessagePreview: null,
+                  lastTimestamp: g.createdAt,
+                },
+                ...prev,
+              ];
+            });
+          } else if (payload.type === 'group:update' && payload.group) {
+            const g = payload.group;
+            setGroups((prev) =>
+              prev.map((item) =>
+                item.group.id === g.id ? { ...item, group: g } : item
+              )
+            );
+            const cur = activeTargetRef.current;
+            if (cur?.kind === 'group' && cur.group.id === g.id) {
+              setActiveTarget({ kind: 'group', group: g });
+            }
+          } else if (payload.type === 'group:delete' && payload.groupId) {
+            const deletedId = payload.groupId;
+            groupKeysCacheRef.current.delete(deletedId);
+            setGroups((prev) => prev.filter((item) => item.group.id !== deletedId));
+            const cur = activeTargetRef.current;
+            if (cur?.kind === 'group' && cur.group.id === deletedId) {
+              setActiveTarget(null);
+              setIsGroupInfoOpen(false);
+              setMobileShowChat(false);
+            }
+          } else if (payload.type === 'typing:state' && payload.fromId) {
+            if (payload.groupId) {
+              const grp = groupsRef.current.find(
+                (item) => item.group.id === payload.groupId
+              )?.group;
+              const senderName =
+                grp?.members.find((m) => m.id === payload.fromId)?.displayName ??
+                null;
+              setTypingGroups((prev) => ({
+                ...prev,
+                [payload.groupId!]: payload.isTyping ? senderName : null,
+              }));
+            } else {
+              setTypingPeers((prev) => ({
+                ...prev,
+                [payload.fromId!]: Boolean(payload.isTyping),
+              }));
+            }
+          } else if (payload.type === 'message:read' && payload.messageIds) {
+            const readIds = new Set(payload.messageIds);
+            setMessages((prev) =>
+              prev.map((m) =>
+                readIds.has(m.id) ? { ...m, readAt: payload.readAt ?? Date.now() } : m
+              )
+            );
+          } else if (payload.type === 'message:delete' && payload.messageId) {
+            setMessages((prev) => prev.filter((m) => m.id !== payload.messageId));
+            loadAllThreads();
+          } else if (payload.type === 'group:message:delete' && payload.messageId) {
+            setMessages((prev) => prev.filter((m) => m.id !== payload.messageId));
+            loadAllThreads();
+          } else if (payload.type === 'group:message:new' && payload.message) {
+            const env = payload.message as GroupMessageEnvelope;
+            const grpEntry = groupsRef.current.find(
+              (item) => item.group.id === env.groupId
+            );
+            let targetGroup = grpEntry?.group;
+            if (!targetGroup) {
+              await loadAllThreads();
+              targetGroup = groupsRef.current.find(
+                (item) => item.group.id === env.groupId
+              )?.group;
+            }
+            if (!targetGroup) return;
+
+            const dec = await decryptGroupEnvelope(env, targetGroup, payload.sender);
+            const cur = activeTargetRef.current;
+            const isActiveGroup =
+              cur?.kind === 'group' && cur.group.id === env.groupId;
+
+            if (isActiveGroup) {
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === dec.id)) return prev;
+                return [...prev, dec];
+              });
+            }
+
+            const prefix =
+              dec.fromId === session.user.id
+                ? 'Vous : '
+                : dec.sender
+                  ? `${dec.sender.displayName} : `
+                  : '';
+
+            setGroups((prev) =>
+              prev
+                .map((item) =>
+                  item.group.id === env.groupId
+                    ? {
+                        ...item,
+                        lastMessagePreview: `${prefix}${dec.text}`,
+                        lastTimestamp: dec.timestamp,
+                      }
+                    : item
+                )
+                .sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0))
+            );
+          } else if (payload.type === 'message:new' && payload.message) {
+            const env = payload.message as EncryptedMessageEnvelope;
+            const peerId =
+              env.fromId === session.user.id ? env.toId : env.fromId;
+
+            const cur = activeTargetRef.current;
+            let peerObj =
+              cur?.kind === 'dm' && cur.peer.id === peerId
+                ? cur.peer
+                : payload.sender?.id === peerId
+                  ? payload.sender
+                  : undefined;
+
+            if (!peerObj) {
+              const userRes = await fetch(`/api/users/${encodeURIComponent(peerId)}`, {
+                headers: { Authorization: `Bearer ${session.token}` },
+              });
+              if (userRes.ok) {
+                const userData = await userRes.json();
+                peerObj = userData.user as PublicUser;
+              }
+            }
+
+            if (!peerObj) return;
+
+            const dec = await decryptEnvelope(env, peerObj);
+
+            const isActiveConversation =
+              cur?.kind === 'dm' &&
+              getCanonicalConversationId(session.user.id, cur.peer.id) ===
+                env.conversationId;
+
+            if (isActiveConversation) {
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === dec.id)) return prev;
+                return [...prev, dec];
+              });
+              if (env.fromId !== session.user.id) {
+                markConversationRead(peerId);
+              }
+            }
+
+            setConversations((prev) => {
+              const exists = prev.some((c) => c.peer.id === peerId);
+              const nextUnread =
+                isActiveConversation || env.fromId === session.user.id ? 0 : 1;
+
+              const updatedList = exists
+                ? prev.map((c) =>
+                    c.peer.id === peerId
+                      ? {
+                          ...c,
+                          lastMessagePreview: dec.text,
+                          lastTimestamp: dec.timestamp,
+                          unreadCount: isActiveConversation
+                            ? 0
+                            : c.unreadCount + nextUnread,
+                        }
+                      : c
+                  )
+                : [
+                    {
+                      peer: peerObj!,
+                      lastMessagePreview: dec.text,
+                      lastTimestamp: dec.timestamp,
+                      unreadCount: nextUnread,
+                    },
+                    ...prev,
+                  ];
+
+              return [...updatedList].sort(
+                (a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0)
+              );
+            });
+          }
+        } catch {
+          // Ignore malformed frame
+        }
+      };
+
+      ws.onclose = () => {
+        if (!closedByUser) {
+          const delay = Math.min(1000 * Math.pow(1.6, attempt), 10000);
+          attempt += 1;
+          reconnectTimer = window.setTimeout(connect, delay);
+        }
+      };
+    }
+
+    connect();
+
+    return () => {
+      closedByUser = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+    };
+  }, [
+    session.token,
+    session.user.id,
+    decryptEnvelope,
+    decryptGroupEnvelope,
+    loadAllThreads,
+    loadFriends,
+    loadMessagesForTarget,
+    markConversationRead,
+    onUpdateUser,
+  ]);
+
+  function getRelationship(userId: string): RelationshipState {
+    if (userId === session.user.id) return 'self';
+    if (friendsSnapshot.blocked.some((b) => b.id === userId)) return 'blocked_by_me';
+    if (friendsSnapshot.blockedByIds.includes(userId)) return 'blocked_by_peer';
+    if (friendsSnapshot.friends.some((f) => f.id === userId)) return 'friend';
+    if (friendsSnapshot.incoming.some((r) => r.fromUser.id === userId)) {
+      return 'incoming_pending';
+    }
+    if (friendsSnapshot.outgoing.some((r) => r.toUser.id === userId)) {
+      return 'outgoing_pending';
+    }
+    return 'none';
+  }
+
+  function applyFriendsSnapshot(data: FriendsSnapshot) {
+    setFriendsSnapshot({
+      friends: data.friends ?? [],
+      incoming: data.incoming ?? [],
+      outgoing: data.outgoing ?? [],
+      blocked: data.blocked ?? [],
+      blockedByIds: data.blockedByIds ?? [],
+    });
+  }
+
+  async function handleSendFriendRequest(targetUserId: string) {
+    const res = await fetch('/api/friends/request', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Demande impossible.');
+    applyFriendsSnapshot(data);
+  }
+
+  async function handleAcceptFriendRequest(fromUserId: string) {
+    const res = await fetch('/api/friends/accept', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify({ fromUserId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Acceptation impossible.');
+    applyFriendsSnapshot(data);
+  }
+
+  async function handleDeclineFriendRequest(userId: string) {
+    const res = await fetch('/api/friends/decline', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify({ userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Refus impossible.');
+    applyFriendsSnapshot(data);
+  }
+
+  async function handleRemoveFriend(userId: string) {
+    const res = await fetch(`/api/friends/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Suppression impossible.');
+    applyFriendsSnapshot(data);
+  }
+
+  async function handleBlockUser(targetUserId: string) {
+    const res = await fetch('/api/blocks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Blocage impossible.');
+    applyFriendsSnapshot(data);
+  }
+
+  async function handleUnblockUser(targetUserId: string) {
+    const res = await fetch(`/api/blocks/${encodeURIComponent(targetUserId)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Déblocage impossible.');
+    applyFriendsSnapshot(data);
+  }
+
+  function emitTyping(isTyping: boolean) {
+    if (!activeTarget) return;
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+
+    if (activeTarget.kind === 'dm') {
+      if (activeTarget.peer.id === session.user.id) return;
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'typing:state',
+          toId: activeTarget.peer.id,
+          isTyping,
+        })
+      );
+    } else {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'typing:state',
+          groupId: activeTarget.group.id,
+          isTyping,
+        })
+      );
+    }
+  }
+
+  function handleComposerChange(val: string) {
+    setComposerText(val);
+    emitTyping(val.trim().length > 0);
+    if (typingTimeoutRef.current) {
+      window.clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = window.setTimeout(() => {
+      emitTyping(false);
+    }, 2200);
+  }
+
+  async function handleSendMessage(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!activeTarget || sending) return;
+    const trimmed = composerText.trim();
+    if (!trimmed) return;
+
+    setSending(true);
+    setSendError(null);
+    emitTyping(false);
+
+    try {
+      const id = window.crypto.randomUUID();
+      const timestamp = Date.now();
+
+      if (activeTarget.kind === 'dm') {
+        const peer = activeTarget.peer;
+        const encrypted = await encryptAndSignMessage({
+          id,
+          fromId: session.user.id,
+          toId: peer.id,
+          plaintext: trimmed,
+          timestamp,
+          myEcdhPrivateKey: session.ecdhPrivateKey,
+          myEcdsaPrivateKey: session.ecdsaPrivateKey,
+          peerEcdhPublicJwk: peer.ecdhPublicJwk,
+        });
+
+        const optimistic: DecryptedMessage = {
+          id,
+          conversationId: encrypted.conversationId,
+          fromId: session.user.id,
+          toId: peer.id,
+          text: trimmed,
+          timestamp,
+          expiresAt:
+            ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
+          readAt: peer.id === session.user.id ? timestamp : null,
+          verified: true,
+          rawCiphertext: encrypted.ciphertext,
+          rawIv: encrypted.iv,
+          rawSignature: encrypted.signature,
+        };
+
+        setMessages((prev) =>
+          prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
+        );
+        setComposerText('');
+
+        const res = await fetch('/api/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.token}`,
+          },
+          body: JSON.stringify({
+            id,
+            toId: peer.id,
+            ciphertext: encrypted.ciphertext,
+            iv: encrypted.iv,
+            signature: encrypted.signature,
+            timestamp,
+            ttlSeconds: ephemeralDuration,
+          }),
+        });
+
+        if (!res.ok) {
+          setMessages((prev) => prev.filter((m) => m.id !== id));
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Échec d'envoi du message.");
+        }
+
+        const data = (await res.json()) as { message: EncryptedMessageEnvelope };
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === id ? { ...m, expiresAt: data.message.expiresAt } : m
+          )
+        );
+
+        setConversations((prev) =>
+          prev
+            .map((c) =>
+              c.peer.id === peer.id
+                ? {
+                    ...c,
+                    lastMessagePreview: trimmed,
+                    lastTimestamp: timestamp,
+                  }
+                : c
+            )
+            .sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0))
+        );
+      } else {
+        const group = activeTarget.group;
+        const groupKey = await getGroupAesKey(group);
+        if (!groupKey) {
+          throw new Error('Clé de chiffrement du groupe introuvable.');
+        }
+
+        const encrypted = await encryptAndSignGroupMessage({
+          id,
+          groupId: group.id,
+          fromId: session.user.id,
+          plaintext: trimmed,
+          timestamp,
+          groupAesKey: groupKey,
+          myEcdsaPrivateKey: session.ecdsaPrivateKey,
+        });
+
+        const optimistic: DecryptedMessage = {
+          id,
+          conversationId: group.id,
+          fromId: session.user.id,
+          toId: group.id,
+          groupId: group.id,
+          sender: session.user,
+          text: trimmed,
+          timestamp,
+          expiresAt:
+            ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
+          readAt: null,
+          verified: true,
+          rawCiphertext: encrypted.ciphertext,
+          rawIv: encrypted.iv,
+          rawSignature: encrypted.signature,
+        };
+
+        setMessages((prev) =>
+          prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
+        );
+        setComposerText('');
+
+        const res = await fetch(
+          `/api/groups/${encodeURIComponent(group.id)}/messages`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.token}`,
+            },
+            body: JSON.stringify({
+              id,
+              ciphertext: encrypted.ciphertext,
+              iv: encrypted.iv,
+              signature: encrypted.signature,
+              timestamp,
+              ttlSeconds: ephemeralDuration,
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          setMessages((prev) => prev.filter((m) => m.id !== id));
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Échec d'envoi du message.");
+        }
+
+        const data = (await res.json()) as { message: GroupMessageEnvelope };
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === id ? { ...m, expiresAt: data.message.expiresAt } : m
+          )
+        );
+
+        setGroups((prev) =>
+          prev
+            .map((item) =>
+              item.group.id === group.id
+                ? {
+                    ...item,
+                    lastMessagePreview: `Vous : ${trimmed}`,
+                    lastTimestamp: timestamp,
+                  }
+                : item
+            )
+            .sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0))
+        );
+      }
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Erreur d'envoi.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleDeleteMessage(msg: DecryptedMessage) {
+    try {
+      setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+      if (msg.groupId) {
+        await fetch(
+          `/api/groups/${encodeURIComponent(msg.groupId)}/messages/${encodeURIComponent(
+            msg.id
+          )}`,
+          {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${session.token}` },
+          }
+        );
+      } else {
+        await fetch(`/api/messages/${encodeURIComponent(msg.id)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
+      }
+      loadAllThreads();
+    } catch {
+      if (activeTarget) loadMessagesForTarget(activeTarget);
+    }
+  }
+
+  async function handleCopyOwnHandle() {
+    try {
+      await navigator.clipboard.writeText(session.user.handle);
+      setCopiedHandle(true);
+      setTimeout(() => setCopiedHandle(false), 1800);
+    } catch {
+      // Ignore
+    }
+  }
+
+  async function handleSelectPeer(peer: PublicUser) {
+    try {
+      await fetch('/api/conversations/open', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`,
+        },
+        body: JSON.stringify({ peerId: peer.id }),
+      });
+    } catch {
+      // Continue opening locally
+    }
+    setActiveTarget({ kind: 'dm', peer });
+    setMobileShowChat(true);
+    setConversations((prev) => {
+      if (prev.some((c) => c.peer.id === peer.id)) {
+        return prev.map((c) =>
+          c.peer.id === peer.id ? { ...c, unreadCount: 0 } : c
+        );
+      }
+      return [
+        {
+          peer,
+          lastMessagePreview: null,
+          lastTimestamp: null,
+          unreadCount: 0,
+        },
+        ...prev,
+      ];
+    });
+  }
+
+  function handleSelectGroup(group: GroupInfo) {
+    setActiveTarget({ kind: 'group', group });
+    setMobileShowChat(true);
+    setGroups((prev) => {
+      if (prev.some((item) => item.group.id === group.id)) {
+        return prev.map((item) =>
+          item.group.id === group.id ? { ...item, group } : item
+        );
+      }
+      return [
+        {
+          group,
+          lastMessagePreview: null,
+          lastTimestamp: group.createdAt,
+        },
+        ...prev,
+      ];
+    });
+  }
+
+  type UnifiedSidebarItem =
+    | {
+        kind: 'dm';
+        id: string;
+        sortTs: number;
+        conv: SidebarConversation;
+      }
+    | {
+        kind: 'group';
+        id: string;
+        sortTs: number;
+        sg: SidebarGroup;
+      };
+
+  const visibleSidebarItems = useMemo(() => {
+    const q = sidebarFilter.trim().toLowerCase();
+    const list: UnifiedSidebarItem[] = [];
+
+    if (sidebarTab === 'all' || sidebarTab === 'direct') {
+      for (const conv of conversations) {
+        if (
+          !q ||
+          conv.peer.displayName.toLowerCase().includes(q) ||
+          conv.peer.handle.toLowerCase().includes(q)
+        ) {
+          list.push({
+            kind: 'dm',
+            id: `dm:${conv.peer.id}`,
+            sortTs: conv.lastTimestamp ?? (conv.peer.id === session.user.id ? 1 : 0),
+            conv,
+          });
+        }
+      }
+    }
+
+    if (sidebarTab === 'all' || sidebarTab === 'groups') {
+      for (const sg of groups) {
+        if (
+          !q ||
+          sg.group.name.toLowerCase().includes(q) ||
+          (sg.group.description ?? '').toLowerCase().includes(q)
+        ) {
+          list.push({
+            kind: 'group',
+            id: `group:${sg.group.id}`,
+            sortTs: sg.lastTimestamp ?? sg.group.createdAt,
+            sg,
+          });
+        }
+      }
+    }
+
+    return list.sort((a, b) => b.sortTs - a.sortTs);
+  }, [conversations, groups, sidebarFilter, sidebarTab, session.user.id]);
+
+  const activePeer = activeTarget?.kind === 'dm' ? activeTarget.peer : null;
+  const activeGroup = activeTarget?.kind === 'group' ? activeTarget.group : null;
+  const isSelfSelected = activePeer?.id === session.user.id;
+  const isPeerTyping = Boolean(
+    activePeer && activePeer.id !== session.user.id && typingPeers[activePeer.id]
+  );
+  const activeGroupTypingUser = activeGroup ? typingGroups[activeGroup.id] : null;
+
+  const myTone =
+    TONE_CLASSES[session.user.accentTone ?? 'platinum'] ?? TONE_CLASSES.platinum;
+
+  const glassSurfaceClass =
+    glassIntensity === 'subtle'
+      ? 'bg-white/[0.015] backdrop-blur-md'
+      : glassIntensity === 'deep'
+        ? 'bg-white/[0.045] backdrop-blur-3xl'
+        : 'bg-white/[0.025] backdrop-blur-2xl';
+
+  return (
+    <div className="relative h-dvh w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex">
+      {/* Subtle monochrome smoked glass depth */}
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 left-1/4 h-[460px] w-[620px] rounded-full bg-white/[0.03] blur-[140px]" />
+        <div className="absolute bottom-0 right-1/5 h-[380px] w-[480px] rounded-full bg-slate-300/[0.02] blur-[130px]" />
+      </div>
+
+      {/* Left Sidebar: Conversations, Groups & Identity */}
+      <aside
+        className={`relative z-10 flex h-full w-full md:w-[328px] lg:w-[356px] shrink-0 flex-col border-r border-white/[0.08] ${glassSurfaceClass} ${
+          mobileShowChat ? 'hidden md:flex' : 'flex'
+        }`}
+      >
+        {/* Top App Wordmark + Actions */}
+        <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
+          <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
+            DISCRET
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsProfileModalOpen(true)}
+              title="Personnaliser le profil"
+              aria-label="Personnaliser le profil"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFriendsModalOpen(true)}
+              title="Liste d'amis et demandes"
+              aria-label="Liste d'amis et demandes"
+              className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+            >
+              <UserPlus className="h-4 w-4" />
+              {friendsSnapshot.incoming.length > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 font-mono text-[10px] font-bold text-zinc-950 tabular-nums">
+                  {friendsSnapshot.incoming.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCreateGroupOpen(true)}
+              title="Créer un groupe chiffré"
+              aria-label="Créer un groupe chiffré"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+            >
+              <Users className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsContactModalOpen(true)}
+              title="Nouvelle discussion directe"
+              aria-label="Nouvelle discussion directe"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onLockSession}
+              title="Verrouiller la session et effacer les clés de la mémoire"
+              aria-label="Verrouiller la session"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer"
+            >
+              <Lock className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* User Profile Card with Banner */}
+        <div className="relative overflow-hidden border-b border-white/[0.07]">
+          <ProfileBanner
+            user={session.user}
+            className="h-14"
+            scrimClassName="bg-gradient-to-b from-black/25 via-black/45 to-[#08080b]/95"
+          />
+          <div className="relative -mt-6 flex items-end justify-between gap-2.5 px-4 pb-3.5">
+            <button
+              type="button"
+              onClick={() => setIsProfileModalOpen(true)}
+              className="flex items-end gap-3 min-w-0 flex-1 text-left rounded-xl p-1 -m-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
+            >
+              <div className="rounded-full p-0.5 bg-[#09090C] border border-white/15 shrink-0">
+                <UserAvatar user={session.user} size="sm" />
+              </div>
+              <div className="min-w-0 flex-1 pb-0.5">
+                <span className="block font-[family-name:var(--font-display)] text-sm font-semibold text-white truncate">
+                  {session.user.displayName}
+                </span>
+                <p className="text-[11px] text-zinc-400 truncate">
+                  {session.user.bio || 'Appuyez pour personnaliser'}
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyOwnHandle}
+              title="Copier votre identifiant public"
+              className="shrink-0 min-h-[34px] flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:bg-white/[0.09] hover:text-white transition-colors cursor-pointer"
+            >
+              <span className="max-w-[92px] truncate">{session.user.handle}</span>
+              {copiedHandle ? (
+                <Check className="h-3 w-3 text-emerald-400 shrink-0" />
+              ) : (
+                <Copy className="h-3 w-3 shrink-0 opacity-60" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Filter & Segmented Tabs */}
+        <div className="px-3.5 pt-3 pb-2 space-y-2.5">
+          <div className="relative flex items-center glass-input rounded-xl">
+            <Search className="ml-3 h-3.5 w-3.5 text-zinc-500 shrink-0" />
+            <input
+              type="text"
+              value={sidebarFilter}
+              onChange={(e) => setSidebarFilter(e.target.value)}
+              placeholder="Filtrer discussions et groupes..."
+              className="w-full bg-transparent px-2.5 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.03] p-1 border border-white/[0.06]">
+            {(
+              [
+                { key: 'all', label: 'Tout' },
+                { key: 'direct', label: 'Directs' },
+                { key: 'groups', label: `Groupes (${groups.length})` },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setSidebarTab(t.key)}
+                className={`rounded-lg py-1.5 px-2 text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  sidebarTab === t.key
+                    ? 'bg-white text-zinc-950'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Unified Thread List */}
+        <div className="flex-1 overflow-y-auto px-2.5 pb-4 space-y-1">
+          {loadingConversations ? (
+            <div className="space-y-2 px-2 pt-2">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-14 rounded-xl bg-white/[0.03] animate-pulse"
+                />
+              ))}
+            </div>
+          ) : visibleSidebarItems.length === 0 ? (
+            <div className="px-4 py-10 text-center space-y-3">
+              <p className="text-xs text-zinc-500">
+                {sidebarTab === 'groups'
+                  ? 'Aucun groupe pour le moment.'
+                  : 'Aucune conversation trouvée.'}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  sidebarTab === 'groups'
+                    ? setIsCreateGroupOpen(true)
+                    : setIsContactModalOpen(true)
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-2 text-xs font-medium text-white hover:bg-white/[0.1] transition-colors cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>
+                  {sidebarTab === 'groups'
+                    ? 'Créer un groupe'
+                    : 'Ajouter un contact'}
+                </span>
+              </button>
+            </div>
+          ) : (
+            visibleSidebarItems.map((item) => {
+              if (item.kind === 'dm') {
+                const { conv } = item;
+                const isSelf = conv.peer.id === session.user.id;
+                const isSelected = activeTargetId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelectPeer(conv.peer)}
+                    className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
+                      isSelected
+                        ? 'bg-white/[0.08] border-white/[0.12] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]'
+                        : 'border-transparent hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <UserAvatar
+                      user={conv.peer}
+                      isSelfVault={isSelf}
+                      size="md"
+                    />
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-medium text-white truncate">
+                          {isSelf ? 'Notes chiffrées' : conv.peer.displayName}
+                        </span>
+                        {conv.lastTimestamp && (
+                          <span className="font-mono text-[11px] text-zinc-500 tabular-nums shrink-0">
+                            {formatTime(conv.lastTimestamp)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2">
+                        <p className="text-xs text-zinc-400 truncate">
+                          {conv.lastMessagePreview ??
+                            (isSelf
+                              ? 'Coffre-fort personnel'
+                              : conv.peer.bio || conv.peer.handle)}
+                        </p>
+                        {conv.unreadCount > 0 && (
+                          <span className="shrink-0 font-mono text-[11px] font-semibold text-white bg-white/15 px-1.5 py-0.5 rounded-md tabular-nums">
+                            {conv.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              }
+
+              const { sg } = item;
+              const isSelected = activeTargetId === item.id;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSelectGroup(sg.group)}
+                  className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
+                    isSelected
+                      ? 'bg-white/[0.08] border-white/[0.12] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]'
+                      : 'border-transparent hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <GroupAvatar group={sg.group} size="md" />
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-medium text-white truncate">
+                        {sg.group.name}
+                      </span>
+                      {sg.lastTimestamp && (
+                        <span className="font-mono text-[11px] text-zinc-500 tabular-nums shrink-0">
+                          {formatTime(sg.lastTimestamp)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex items-center justify-between gap-2">
+                      <p className="text-xs text-zinc-400 truncate">
+                        {sg.lastMessagePreview ??
+                          `${sg.group.members.length} membre${
+                            sg.group.members.length > 1 ? 's' : ''
+                          }${sg.group.description ? ` · ${sg.group.description}` : ''}`}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Bottom quick actions + Desktop/Phone App Installer */}
+        <div className="border-t border-white/[0.07] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsContactModalOpen(true)}
+              className="min-h-[42px] flex items-center justify-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 px-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.07] transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <span>Contact</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFriendsModalOpen(true)}
+              className="relative min-h-[42px] flex items-center justify-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 px-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.07] transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <UserPlus className="h-3.5 w-3.5 shrink-0" />
+              <span>Amis</span>
+              {friendsSnapshot.incoming.length > 0 && (
+                <span className="font-mono text-[10px] font-semibold bg-white text-zinc-950 px-1.5 rounded-full tabular-nums">
+                  {friendsSnapshot.incoming.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCreateGroupOpen(true)}
+              className="min-h-[42px] flex items-center justify-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 px-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.07] transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Users className="h-3.5 w-3.5 shrink-0" />
+              <span>Groupe</span>
+            </button>
+          </div>
+          <PWAInstallButton onOpenModal={() => setIsInstallModalOpen(true)} />
+        </div>
+      </aside>
+
+      {/* Right Chat Viewport */}
+      <main
+        className={`relative z-10 flex-1 flex flex-col h-full min-w-0 ${
+          !mobileShowChat ? 'hidden md:flex' : 'flex'
+        }`}
+      >
+        {activeTarget ? (
+          <>
+            {/* Conversation Header */}
+            <header
+              className={`flex items-center justify-between gap-3 border-b border-white/[0.08] ${glassSurfaceClass} px-3 sm:px-6 py-3`}
+            >
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setMobileShowChat(false)}
+                  aria-label="Retour aux conversations"
+                  className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.06] hover:text-white cursor-pointer"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+
+                {activePeer ? (
+                  <button
+                    type="button"
+                    onClick={() => setViewedProfileUser(activePeer)}
+                    title="Voir le profil"
+                    className="flex items-center gap-2.5 sm:gap-3 min-w-0 text-left rounded-xl p-1 -m-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
+                  >
+                    <UserAvatar
+                      user={activePeer}
+                      isSelfVault={isSelfSelected}
+                      size="sm"
+                    />
+
+                    <div className="min-w-0">
+                      <h1 className="font-[family-name:var(--font-display)] text-sm sm:text-base font-semibold text-white truncate">
+                        {isSelfSelected
+                          ? 'Notes chiffrées (Coffre personnel)'
+                          : activePeer.displayName}
+                      </h1>
+                      <div className="flex items-center gap-2 text-xs text-zinc-400">
+                        <span className="font-mono truncate">{activePeer.handle}</span>
+                        {isPeerTyping && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span className="whitespace-nowrap text-zinc-200">
+                              Écrit...
+                            </span>
+                          </>
+                        )}
+                        {!isSelfSelected && !isPeerTyping && activePeer.bio && (
+                          <>
+                            <span className="hidden lg:inline" aria-hidden="true">
+                              ·
+                            </span>
+                            <span className="hidden lg:inline truncate max-w-[240px]">
+                              {activePeer.bio}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ) : activeGroup ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsGroupInfoOpen(true)}
+                    className="flex items-center gap-2.5 sm:gap-3 min-w-0 text-left rounded-xl p-1 -m-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
+                  >
+                    <GroupAvatar group={activeGroup} size="sm" />
+
+                    <div className="min-w-0">
+                      <h1 className="font-[family-name:var(--font-display)] text-sm sm:text-base font-semibold text-white truncate">
+                        {activeGroup.name}
+                      </h1>
+                      <div className="flex items-center gap-2 text-xs text-zinc-400">
+                        <span className="whitespace-nowrap">
+                          {activeGroup.members.length} membre
+                          {activeGroup.members.length > 1 ? 's' : ''}
+                        </span>
+                        {activeGroupTypingUser ? (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span className="whitespace-nowrap text-zinc-200">
+                              {activeGroupTypingUser} écrit...
+                            </span>
+                          </>
+                        ) : activeGroup.description ? (
+                          <>
+                            <span className="hidden lg:inline" aria-hidden="true">
+                              ·
+                            </span>
+                            <span className="hidden lg:inline truncate max-w-[240px]">
+                              {activeGroup.description}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                ) : null}
+              </div>
+
+              {/* Right Controls: Ephemeral Timer & Verification / Group Members */}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="hidden sm:flex items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
+                  <Clock className="ml-2 mr-1 h-3.5 w-3.5 text-zinc-400" />
+                  {EPHEMERAL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setEphemeralDuration(opt.value)}
+                      className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                        ephemeralDuration === opt.value
+                          ? 'bg-white text-zinc-950'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {activePeer ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsSecurityModalOpen(true)}
+                    className="min-h-[40px] flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                    <span className="hidden sm:inline">Vérifier E2EE</span>
+                  </button>
+                ) : activeGroup ? (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setInspectorMode((v) => !v)}
+                      title="Inspecter les paquets chiffrés"
+                      className={`min-h-[40px] flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                        inspectorMode
+                          ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                          : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09]'
+                      }`}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsGroupInfoOpen(true)}
+                      className="min-h-[40px] flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      <Users className="h-4 w-4 text-zinc-200" />
+                      <span className="hidden sm:inline">Membres</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </header>
+
+            {/* Mobile Ephemeral Selector Bar */}
+            <div className="sm:hidden flex items-center justify-between gap-2 border-b border-white/[0.06] bg-white/[0.015] px-4 py-2">
+              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                <Clock className="h-3 w-3" />
+                <span>Auto-destruction</span>
+              </span>
+              <div className="flex items-center gap-1">
+                {EPHEMERAL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setEphemeralDuration(opt.value)}
+                    className={`min-h-[30px] rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                      ephemeralDuration === opt.value
+                        ? 'bg-white text-zinc-950'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Messages Stream */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-3">
+              {loadingMessages ? (
+                <div className="flex h-full items-center justify-center">
+                  <p className="text-xs text-zinc-500">
+                    Déchiffrement local des messages...
+                  </p>
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="flex h-full items-center justify-center">
+                  <div className="glass-surface max-w-md w-full overflow-hidden rounded-2xl text-center">
+                    {activePeer ? (
+                      <>
+                        <ProfileBanner user={activePeer} className="h-24" />
+                        <div className="px-6 pb-6">
+                          <div className="-mt-7 mx-auto mb-3 inline-flex rounded-full p-1 bg-[#0a0a0e] border border-white/10">
+                            <UserAvatar
+                              user={activePeer}
+                              isSelfVault={isSelfSelected}
+                              size="md"
+                            />
+                          </div>
+                          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                            {isSelfSelected
+                              ? 'Votre coffre de notes chiffrées'
+                              : `Canal chiffré avec ${activePeer.displayName}`}
+                          </h2>
+                          {!isSelfSelected && activePeer.biography && (
+                            <p className="mt-2 text-xs text-zinc-300 leading-relaxed whitespace-pre-line line-clamp-3">
+                              {activePeer.biography}
+                            </p>
+                          )}
+                          <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+                            {isSelfSelected
+                              ? 'Enregistrez ici vos notes privées. Elles sont chiffrées localement avec votre clé avant d’être stockées.'
+                              : 'Chaque message est chiffré en AES-256-GCM via votre secret partagé ECDH P-256 et signé numériquement.'}
+                          </p>
+                        </div>
+                      </>
+                    ) : activeGroup ? (
+                      <>
+                        <ProfileBanner
+                          user={{
+                            displayName: activeGroup.name,
+                            bannerPreset: activeGroup.bannerPreset,
+                            bannerDataUrl: activeGroup.bannerDataUrl ?? null,
+                          }}
+                          className="h-24"
+                        />
+                        <div className="px-6 pb-6">
+                          <div className="-mt-8 mx-auto mb-3 inline-flex rounded-2xl p-1 bg-[#0a0a0e] border border-white/15">
+                            <GroupAvatar group={activeGroup} size="md" />
+                          </div>
+                          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                            {activeGroup.name}
+                          </h2>
+                          <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+                            Groupe chiffré de bout en bout ({activeGroup.members.length}{' '}
+                            membre{activeGroup.members.length > 1 ? 's' : ''}). La clé AES-256-GCM du groupe est protégée par ECDH P-256 pour chaque membre.
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                messages.map((msg) => {
+                  const isMine = msg.fromId === session.user.id;
+                  const showGroupSender = Boolean(msg.groupId && !isMine && msg.sender);
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`group flex flex-col ${
+                        isMine ? 'items-end' : 'items-start'
+                      }`}
+                    >
+                      {showGroupSender && msg.sender && (
+                        <button
+                          type="button"
+                          onClick={() => setViewedProfileUser(msg.sender!)}
+                          className="mb-1 ml-1 flex items-center gap-1.5 hover:opacity-90 cursor-pointer"
+                        >
+                          <UserAvatar user={msg.sender} size="sm" />
+                          <span className="text-xs font-medium text-zinc-300 hover:text-white">
+                            {msg.sender.displayName}
+                          </span>
+                          <span className="font-mono text-[10px] text-zinc-500">
+                            {msg.sender.handle}
+                          </span>
+                        </button>
+                      )}
+
+                      <div
+                        className={`relative max-w-[85%] sm:max-w-[68%] rounded-2xl px-4 py-2.5 backdrop-blur-xl transition-colors ${
+                          isMine
+                            ? `${myTone.bubbleBg} border ${myTone.bubbleBorder} text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]`
+                            : 'bg-white/[0.04] border border-white/[0.08] text-zinc-100 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]'
+                        }`}
+                      >
+                        <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words">
+                          {msg.text}
+                        </p>
+
+                        {inspectorMode && (
+                          <div className="mt-2.5 pt-2 border-t border-white/[0.1] font-mono text-[10px] text-zinc-400 space-y-1 break-all">
+                            <div>
+                              <span className="text-zinc-500">AES-256-GCM: </span>
+                              <span>{msg.rawCiphertext}</span>
+                            </div>
+                            <div>
+                              <span className="text-zinc-500">IV: </span>
+                              <span>{msg.rawIv}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        <div
+                          className={`mt-1.5 flex items-center gap-2 text-[11px] ${
+                            isMine ? 'text-zinc-300/80 justify-end' : 'text-zinc-500'
+                          }`}
+                        >
+                          <span className="font-mono tabular-nums">
+                            {formatTime(msg.timestamp)}
+                          </span>
+
+                          {msg.verified && (
+                            <span
+                              title="Signature ECDSA vérifiée"
+                              className="inline-flex items-center gap-0.5 text-emerald-400/90"
+                            >
+                              <UserCheck className="h-3 w-3" />
+                            </span>
+                          )}
+
+                          {msg.expiresAt !== null && (
+                            <span className="inline-flex items-center gap-1 font-mono text-amber-300/90 tabular-nums">
+                              <Clock className="h-3 w-3" />
+                              {formatRemaining(msg.expiresAt, nowTick)}
+                            </span>
+                          )}
+
+                          {isMine && activePeer && !isSelfSelected && (
+                            <span
+                              title={msg.readAt ? 'Lu' : 'Envoyé'}
+                              className="inline-flex items-center"
+                            >
+                              {msg.readAt ? (
+                                <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
+                              ) : (
+                                <Check className="h-3.5 w-3.5 text-zinc-400" />
+                              )}
+                            </span>
+                          )}
+
+                          {(isMine ||
+                            isSelfSelected ||
+                            activeGroup?.creatorId === session.user.id) && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMessage(msg)}
+                              title="Supprimer pour tous"
+                              aria-label="Supprimer le message"
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 ml-1 text-zinc-400 hover:text-red-400 transition-opacity cursor-pointer"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              {(isPeerTyping || activeGroupTypingUser) && (
+                <div className="flex items-start">
+                  <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-2.5 text-xs text-zinc-400">
+                    {activePeer
+                      ? `${activePeer.displayName} écrit...`
+                      : `${activeGroupTypingUser} écrit...`}
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Composer */}
+            <footer
+              className={`border-t border-white/[0.08] ${glassSurfaceClass} px-3 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]`}
+            >
+              {activePeer &&
+              !isSelfSelected &&
+              (getRelationship(activePeer.id) === 'blocked_by_me' ||
+                getRelationship(activePeer.id) === 'blocked_by_peer') ? (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-xs text-zinc-300">
+                  <div className="flex items-center gap-2">
+                    <Ban className="h-4 w-4 text-red-400 shrink-0" />
+                    <span>
+                      {getRelationship(activePeer.id) === 'blocked_by_me'
+                        ? 'Vous avez bloqué cet utilisateur. Les messages sont désactivés.'
+                        : 'Les échanges avec cet utilisateur sont actuellement restreints.'}
+                    </span>
+                  </div>
+                  {getRelationship(activePeer.id) === 'blocked_by_me' && (
+                    <button
+                      type="button"
+                      onClick={() => handleUnblockUser(activePeer.id)}
+                      className="flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.08] px-3 py-1.5 text-xs font-medium text-white hover:bg-white/[0.15] transition-colors shrink-0 cursor-pointer"
+                    >
+                      <ShieldOff className="h-3.5 w-3.5" />
+                      <span>Débloquer</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {sendError && (
+                    <p className="mb-2 text-xs text-red-400">{sendError}</p>
+                  )}
+                  <form
+                    onSubmit={handleSendMessage}
+                    className="flex items-end gap-2.5 sm:gap-3"
+                  >
+                    <div className="flex-1 glass-input rounded-2xl px-4 py-2.5 flex items-center gap-2">
+                      <textarea
+                        rows={1}
+                        value={composerText}
+                        onChange={(e) => handleComposerChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
+                        placeholder={
+                          ephemeralDuration > 0
+                            ? `Message éphémère chiffré (${
+                                EPHEMERAL_OPTIONS.find(
+                                  (o) => o.value === ephemeralDuration
+                                )?.label
+                              })...`
+                            : activeGroup
+                              ? `Écrire dans ${activeGroup.name}...`
+                              : 'Écrire un message chiffré de bout en bout...'
+                        }
+                        className="w-full resize-none bg-transparent text-sm text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={!composerText.trim() || sending}
+                      aria-label="Envoyer le message"
+                      className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-4 sm:px-5 text-sm font-medium text-zinc-950 transition-all hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <Send className="h-4 w-4" />
+                      <span className="hidden sm:inline">Envoyer</span>
+                    </button>
+                  </form>
+                </>
+              )}
+            </footer>
+          </>
+        ) : (
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="glass-surface max-w-sm rounded-2xl p-6 text-center space-y-4">
+              <Lock className="mx-auto h-6 w-6 text-zinc-300" />
+              <p className="text-sm text-zinc-300">
+                Sélectionnez une discussion, ajoutez un contact ou créez un groupe chiffré.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsContactModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Contact</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateGroupOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-4 py-2.5 text-xs font-medium text-white hover:bg-white/[0.1] transition-colors cursor-pointer"
+                >
+                  <Users className="h-4 w-4" />
+                  <span>Groupe</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      <NewContactModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+        token={session.token}
+        currentUser={session.user}
+        onSelectPeer={handleSelectPeer}
+        onViewProfile={(u) => setViewedProfileUser(u)}
+      />
+
+      <FriendsModal
+        isOpen={isFriendsModalOpen}
+        onClose={() => setIsFriendsModalOpen(false)}
+        token={session.token}
+        currentUser={session.user}
+        snapshot={friendsSnapshot}
+        getRelationship={getRelationship}
+        onViewProfile={(u) => setViewedProfileUser(u)}
+        onStartChat={handleSelectPeer}
+        onSendRequest={handleSendFriendRequest}
+        onAcceptRequest={handleAcceptFriendRequest}
+        onDeclineRequest={handleDeclineFriendRequest}
+        onRemoveFriend={handleRemoveFriend}
+        onBlockUser={handleBlockUser}
+        onUnblockUser={handleUnblockUser}
+      />
+
+      <CreateGroupModal
+        isOpen={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+        session={session}
+        friends={friendsSnapshot.friends}
+        onGroupCreated={(group) => handleSelectGroup(group)}
+      />
+
+      <GroupInfoModal
+        isOpen={isGroupInfoOpen}
+        onClose={() => setIsGroupInfoOpen(false)}
+        group={activeGroup}
+        session={session}
+        onViewProfile={(u) => setViewedProfileUser(u)}
+        onGroupUpdated={(updated) => {
+          setGroups((prev) =>
+            prev.map((item) =>
+              item.group.id === updated.id ? { ...item, group: updated } : item
+            )
+          );
+          if (activeTarget?.kind === 'group' && activeTarget.group.id === updated.id) {
+            setActiveTarget({ kind: 'group', group: updated });
+          }
+        }}
+        onGroupLeft={(groupId) => {
+          groupKeysCacheRef.current.delete(groupId);
+          setGroups((prev) => prev.filter((item) => item.group.id !== groupId));
+          if (activeTarget?.kind === 'group' && activeTarget.group.id === groupId) {
+            setActiveTarget(
+              conversations.length > 0
+                ? { kind: 'dm', peer: conversations[0].peer }
+                : null
+            );
+            setMobileShowChat(false);
+          }
+        }}
+        onGroupDeleted={(groupId) => {
+          groupKeysCacheRef.current.delete(groupId);
+          setGroups((prev) => prev.filter((item) => item.group.id !== groupId));
+          if (activeTarget?.kind === 'group' && activeTarget.group.id === groupId) {
+            setActiveTarget(
+              conversations.length > 0
+                ? { kind: 'dm', peer: conversations[0].peer }
+                : null
+            );
+            setMobileShowChat(false);
+          }
+        }}
+      />
+
+      <SecurityModal
+        isOpen={isSecurityModalOpen}
+        onClose={() => setIsSecurityModalOpen(false)}
+        currentUser={session.user}
+        peer={activePeer}
+        inspectorMode={inspectorMode}
+        onToggleInspector={() => setInspectorMode((v) => !v)}
+      />
+
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        token={session.token}
+        user={session.user}
+        glassIntensity={glassIntensity}
+        onChangeGlassIntensity={handleChangeGlassIntensity}
+        onProfileUpdated={(updated) => {
+          onUpdateUser(updated);
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.peer.id === updated.id ? { ...c, peer: updated } : c
+            )
+          );
+          if (activeTarget?.kind === 'dm' && activeTarget.peer.id === updated.id) {
+            setActiveTarget({ kind: 'dm', peer: updated });
+          }
+        }}
+      />
+
+      <PeerProfileModal
+        isOpen={viewedProfileUser !== null}
+        onClose={() => setViewedProfileUser(null)}
+        peer={viewedProfileUser}
+        isSelf={viewedProfileUser?.id === session.user.id}
+        relationship={
+          viewedProfileUser ? getRelationship(viewedProfileUser.id) : 'none'
+        }
+        onOpenSecurity={
+          activePeer && viewedProfileUser?.id === activePeer.id
+            ? () => setIsSecurityModalOpen(true)
+            : undefined
+        }
+        onStartChat={handleSelectPeer}
+        onSendFriendRequest={handleSendFriendRequest}
+        onAcceptFriendRequest={handleAcceptFriendRequest}
+        onDeclineFriendRequest={handleDeclineFriendRequest}
+        onRemoveFriend={handleRemoveFriend}
+        onBlockUser={handleBlockUser}
+        onUnblockUser={handleUnblockUser}
+      />
+
+      <AppInstallModal
+        isOpen={isInstallModalOpen}
+        onClose={() => setIsInstallModalOpen(false)}
+      />
+    </div>
+  );
+};
