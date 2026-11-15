@@ -108,6 +108,7 @@ interface VaultDiskState {
   friendRequests: StoredFriendRequest[];
   blocks: Record<string, string[]>;
   pushSubscriptions: Record<string, StoredPushSubscription[]>;
+  sessions: Record<string, SessionRecord>;
   vapidKeys?: VapidKeyPair;
 }
 
@@ -142,6 +143,7 @@ function loadVault(): VaultDiskState {
         friendRequests: [],
         blocks: {},
         pushSubscriptions: {},
+        sessions: {},
       };
     }
     const raw = fs.readFileSync(VAULT_FILE, 'utf8');
@@ -165,6 +167,10 @@ function loadVault(): VaultDiskState {
         parsed.pushSubscriptions && typeof parsed.pushSubscriptions === 'object'
           ? parsed.pushSubscriptions
           : {},
+      sessions:
+        parsed.sessions && typeof parsed.sessions === 'object'
+          ? parsed.sessions
+          : {},
       vapidKeys:
         parsed.vapidKeys &&
         typeof parsed.vapidKeys.publicKey === 'string' &&
@@ -184,14 +190,32 @@ function loadVault(): VaultDiskState {
       friendRequests: [],
       blocks: {},
       pushSubscriptions: {},
+      sessions: {},
     };
   }
 }
 
 const state: VaultDiskState = loadVault();
 const challenges = new Map<string, PendingChallenge>();
-const sessions = new Map<string, SessionRecord>();
+const sessions = new Map<string, SessionRecord>(Object.entries(state.sessions));
 const activeSockets = new Map<string, Set<WebSocket>>();
+
+function createPersistedSession(userId: string, now = Date.now()): string {
+  const token = crypto.randomBytes(32).toString('hex');
+  const record: SessionRecord = { userId, createdAt: now };
+  sessions.set(token, record);
+  state.sessions[token] = record;
+  schedulePersist();
+  return token;
+}
+
+function deletePersistedSession(token: string) {
+  sessions.delete(token);
+  if (state.sessions[token]) {
+    delete state.sessions[token];
+    schedulePersist();
+  }
+}
 
 let writeTimer: NodeJS.Timeout | null = null;
 function schedulePersist() {
@@ -632,8 +656,7 @@ async function startServer() {
     ensureContactLink(user.id, user.id);
     schedulePersist();
 
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { userId: user.id, createdAt: now });
+    const token = createPersistedSession(user.id, now);
 
     res.status(201).json({ token, user: toPublicUser(user) });
   });
@@ -720,8 +743,7 @@ async function startServer() {
     user.lastSeen = Date.now();
     schedulePersist();
 
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { userId: user.id, createdAt: Date.now() });
+    const token = createPersistedSession(user.id, Date.now());
 
     res.json({ token, user: toPublicUser(user) });
   });
@@ -730,7 +752,7 @@ async function startServer() {
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.slice(7).trim();
-      sessions.delete(token);
+      deletePersistedSession(token);
     }
     res.json({ ok: true });
   });
@@ -1889,15 +1911,10 @@ async function startServer() {
               name: 'disable-hmr-client-ws',
               transform(code, id) {
                 if (id.endsWith('/vite/dist/client/client.mjs')) {
-                  return code
-                    .replace(
-                      'transport.connect(createHMRHandler(handleMessage));',
-                      '/* HMR WebSocket disabled via DISABLE_HMR=true */'
-                    )
-                    .replace(
-                      'ws.send(JSON.stringify(data));',
-                      'if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(data));'
-                    );
+                  return code.replace(
+                    /const transport = normalizeModuleRunnerTransport\(\(\(\) => \{[\s\S]*?\}\)\(\)\);/,
+                    'const transport = normalizeModuleRunnerTransport({ async connect() {}, async disconnect() {}, send() {} });'
+                  );
                 }
               },
             },

@@ -5,13 +5,53 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { importKeysFromJwks } from './lib/crypto';
 import type { PublicUser, UnlockedSession } from './types';
 
-const SESSION_STORAGE_KEY = 'discret_tab_session_v1';
+const SESSION_STORAGE_KEY = 'discret_session_v1';
+const LEGACY_SESSION_KEY = 'discret_tab_session_v1';
 
-interface PersistedTabSession {
+interface PersistedSession {
   token: string;
   user: PublicUser;
   ecdhPrivateJwk: JsonWebKey;
   ecdsaPrivateJwk: JsonWebKey;
+}
+
+function readStoredSession(): string | null {
+  try {
+    const local = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (local) return local;
+
+    // Migrate any legacy sessionStorage session into localStorage
+    const legacy =
+      window.sessionStorage.getItem(LEGACY_SESSION_KEY) ||
+      window.sessionStorage.getItem('voile_tab_session_v1');
+    if (legacy) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, legacy);
+      window.sessionStorage.removeItem(LEGACY_SESSION_KEY);
+      window.sessionStorage.removeItem('voile_tab_session_v1');
+      return legacy;
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return null;
+}
+
+function writeStoredSession(payload: PersistedSession) {
+  try {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function clearStoredSession() {
+  try {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    window.sessionStorage.removeItem(LEGACY_SESSION_KEY);
+    window.sessionStorage.removeItem('voile_tab_session_v1');
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 export default function App() {
@@ -22,28 +62,41 @@ export default function App() {
     let active = true;
     async function restoreSession() {
       try {
-        const raw =
-          window.sessionStorage.getItem(SESSION_STORAGE_KEY) ||
-          window.sessionStorage.getItem('voile_tab_session_v1');
+        const raw = readStoredSession();
         if (!raw) return;
-        const parsed = JSON.parse(raw) as PersistedTabSession;
-        const meRes = await fetch('/api/me', {
-          headers: { Authorization: `Bearer ${parsed.token}` },
-        });
-        if (!meRes.ok) {
-          window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-          window.sessionStorage.removeItem('voile_tab_session_v1');
-          return;
-        }
-        const meData = (await meRes.json()) as { user: PublicUser };
+        const parsed = JSON.parse(raw) as PersistedSession;
         const keys = await importKeysFromJwks(
           parsed.ecdhPrivateJwk,
           parsed.ecdsaPrivateJwk
         );
+
+        let currentUser = parsed.user;
+        try {
+          const meRes = await fetch('/api/me', {
+            headers: { Authorization: `Bearer ${parsed.token}` },
+          });
+          if (meRes.status === 401) {
+            clearStoredSession();
+            return;
+          }
+          if (meRes.ok) {
+            const meData = (await meRes.json()) as { user: PublicUser };
+            currentUser = meData.user;
+            writeStoredSession({
+              token: parsed.token,
+              user: currentUser,
+              ecdhPrivateJwk: parsed.ecdhPrivateJwk,
+              ecdsaPrivateJwk: parsed.ecdsaPrivateJwk,
+            });
+          }
+        } catch {
+          // Offline or transient network error: keep local session unlocked
+        }
+
         if (active) {
           setSession({
             token: parsed.token,
-            user: meData.user,
+            user: currentUser,
             ecdhPrivateKey: keys.ecdhPrivateKey,
             ecdsaPrivateKey: keys.ecdsaPrivateKey,
             ecdhPrivateJwk: parsed.ecdhPrivateJwk,
@@ -51,7 +104,7 @@ export default function App() {
           });
         }
       } catch {
-        window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        clearStoredSession();
       } finally {
         if (active) setRestoring(false);
       }
@@ -64,17 +117,12 @@ export default function App() {
   }, []);
 
   const handleAuthenticated = useCallback((unlocked: UnlockedSession) => {
-    try {
-      const toStore: PersistedTabSession = {
-        token: unlocked.token,
-        user: unlocked.user,
-        ecdhPrivateJwk: unlocked.ecdhPrivateJwk,
-        ecdsaPrivateJwk: unlocked.ecdsaPrivateJwk,
-      };
-      window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(toStore));
-    } catch {
-      // Ignore storage quota errors
-    }
+    writeStoredSession({
+      token: unlocked.token,
+      user: unlocked.user,
+      ecdhPrivateJwk: unlocked.ecdhPrivateJwk,
+      ecdsaPrivateJwk: unlocked.ecdsaPrivateJwk,
+    });
     setSession(unlocked);
   }, []);
 
@@ -82,27 +130,19 @@ export default function App() {
     setSession((prev) => {
       if (!prev) return null;
       const next = { ...prev, user: updatedUser };
-      try {
-        window.sessionStorage.setItem(
-          SESSION_STORAGE_KEY,
-          JSON.stringify({
-            token: next.token,
-            user: next.user,
-            ecdhPrivateJwk: next.ecdhPrivateJwk,
-            ecdsaPrivateJwk: next.ecdsaPrivateJwk,
-          })
-        );
-      } catch {
-        // Ignore storage error
-      }
+      writeStoredSession({
+        token: next.token,
+        user: next.user,
+        ecdhPrivateJwk: next.ecdhPrivateJwk,
+        ecdsaPrivateJwk: next.ecdsaPrivateJwk,
+      });
       return next;
     });
   }, []);
 
   const handleLockSession = useCallback(async () => {
     const token = session?.token;
-    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    window.sessionStorage.removeItem('voile_tab_session_v1');
+    clearStoredSession();
     setSession(null);
     if (token) {
       fetch('/api/auth/logout', {
