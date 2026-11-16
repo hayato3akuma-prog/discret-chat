@@ -752,6 +752,37 @@ async function startServer() {
 
   // Mount Vite in dev or serve built assets in production
   if (process.env.NODE_ENV !== 'production') {
+    // Self-destructing cleanup Service Worker for browsers that still have an old dev-sw.js active
+    app.get('/dev-sw.js', (_req, res) => {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+      );
+      res.send(
+        `self.addEventListener('install', () => { self.skipWaiting(); });
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k.includes('workbox')).map((k) => caches.delete(k)));
+    } catch {}
+    try {
+      await self.registration.unregister();
+    } catch {}
+    try {
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of clients) {
+        if ('navigate' in client) {
+          client.navigate(client.url).catch(() => {});
+        }
+      }
+    } catch {}
+  })());
+});`
+      );
+    });
+
     const { createServer: createViteServer } = await import('vite');
     const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
@@ -780,8 +811,27 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distDir));
+    app.use(
+      express.static(distDir, {
+        setHeaders(res, filePath) {
+          if (
+            filePath.endsWith('index.html') ||
+            filePath.endsWith('sw.js') ||
+            filePath.endsWith('sw-push.js')
+          ) {
+            res.setHeader(
+              'Cache-Control',
+              'no-store, no-cache, must-revalidate, max-age=0'
+            );
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, max-age=0'
+      );
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }

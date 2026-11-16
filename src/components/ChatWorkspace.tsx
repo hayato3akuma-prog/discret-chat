@@ -127,6 +127,30 @@ function formatTime(ts: number): string {
   });
 }
 
+function getDayKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function formatDayLabel(ts: number): string {
+  const target = new Date(ts);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const targetStart = new Date(
+    target.getFullYear(),
+    target.getMonth(),
+    target.getDate()
+  ).getTime();
+  const diffDays = Math.round((todayStart - targetStart) / 86400000);
+  if (diffDays === 0) return 'Aujourd’hui';
+  if (diffDays === 1) return 'Hier';
+  return target.toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: target.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+  });
+}
+
 function formatRemaining(expiresAt: number, now: number): string {
   const diffSec = Math.max(0, Math.ceil((expiresAt - now) / 1000));
   if (diffSec < 60) return `${diffSec}s`;
@@ -159,9 +183,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [inspectorMode, setInspectorMode] = useState(false);
 
   const [glassIntensity, setGlassIntensity] = useState<GlassIntensity>(() => {
-    const saved = window.localStorage.getItem(GLASS_PREF_KEY);
-    if (saved === 'subtle' || saved === 'balanced' || saved === 'deep') {
-      return saved;
+    try {
+      const saved = window.localStorage.getItem(GLASS_PREF_KEY);
+      if (saved === 'subtle' || saved === 'balanced' || saved === 'deep') {
+        return saved;
+      }
+    } catch {
+      // Ignore storage access errors in restricted modes
     }
     return 'balanced';
   });
@@ -202,6 +230,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({});
   const [typingGroups, setTypingGroups] = useState<Record<string, string | null>>({});
   const [copiedHandle, setCopiedHandle] = useState(false);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -211,6 +240,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const groupKeysCacheRef = useRef<Map<string, CryptoKey>>(new Map());
   const typingTimeoutRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const knownMsgIdsRef = useRef<Set<string>>(new Set());
   const animatedNewMsgIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedInitialBatchRef = useRef<boolean>(false);
@@ -1236,29 +1266,40 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           mobileShowChat ? 'hidden md:flex' : 'flex'
         }`}
       >
-        {/* Top App Wordmark + Actions */}
-        <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
-          {onOpenPresentation ? (
-            <button
-              type="button"
-              onClick={onOpenPresentation}
-              title="Voir la page de présentation de DISCRET"
-              className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white hover:text-emerald-300 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              DISCRET
-            </button>
-          ) : (
-            <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
-              DISCRET
-            </span>
-          )}
-          <div className="flex items-center gap-1.5">
+        {/* Top App Wordmark + Primary Utility Actions */}
+        <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5">
+          <div className="flex items-center gap-3 min-w-0">
+            {onOpenPresentation ? (
+              <button
+                type="button"
+                onClick={onOpenPresentation}
+                title="Voir la page de présentation de DISCRET"
+                className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white hover:text-emerald-300 transition-colors cursor-pointer whitespace-nowrap rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              >
+                DISCRET
+              </button>
+            ) : (
+              <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
+                DISCRET
+              </span>
+            )}
+            {onOpenPresentation && (
+              <button
+                type="button"
+                onClick={onOpenPresentation}
+                className="text-[11px] font-medium text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                Présentation
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
-              title="Personnaliser le profil"
+              title="Personnaliser le profil et l'apparence"
               aria-label="Personnaliser le profil"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               <SlidersHorizontal className="h-4 w-4" />
             </button>
@@ -1267,55 +1308,20 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               onClick={() => setIsNotificationsModalOpen(true)}
               title="Notifications push en arrière-plan"
               aria-label="Notifications push"
-              className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               {push.isSubscribed && push.permission === 'granted' ? (
                 <BellRing className="h-4 w-4 text-emerald-400" />
               ) : (
                 <Bell className="h-4 w-4" />
               )}
-              {push.isSubscribed && push.permission === 'granted' ? (
-                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              ) : null}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsFriendsModalOpen(true)}
-              title="Liste d'amis et demandes"
-              aria-label="Liste d'amis et demandes"
-              className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
-            >
-              <UserPlus className="h-4 w-4" />
-              {friendsSnapshot.incoming.length > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 font-mono text-[10px] font-bold text-zinc-950 tabular-nums">
-                  {friendsSnapshot.incoming.length}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsCreateGroupOpen(true)}
-              title="Créer un groupe chiffré"
-              aria-label="Créer un groupe chiffré"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
-            >
-              <Users className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsContactModalOpen(true)}
-              title="Nouvelle discussion directe"
-              aria-label="Nouvelle discussion directe"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
             </button>
             <button
               type="button"
               onClick={handleLockSession}
               title="Verrouiller la session et effacer les clés de la mémoire"
               aria-label="Verrouiller la session"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               <Lock className="h-3.5 w-3.5" />
             </button>
@@ -1915,157 +1921,207 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   </div>
                 </div>
               ) : (
-                messages.map((msg) => {
+                messages.map((msg, idx) => {
                   const isMine = msg.fromId === session.user.id;
                   const showGroupSender = Boolean(msg.groupId && !isMine && msg.sender);
                   const isNewEntry = animatedNewMsgIdsRef.current.has(msg.id);
+                  const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                  const showDaySeparator =
+                    !prevMsg || getDayKey(prevMsg.timestamp) !== getDayKey(msg.timestamp);
 
                   return (
-                    <div
-                      key={msg.id}
-                      className={`group flex flex-col ${
-                        isNewEntry ? 'animate-msg-enter' : 'animate-msg-history'
-                      } ${isMine ? 'items-end' : 'items-start'}`}
-                    >
-                      {showGroupSender && msg.sender && (
-                        <button
-                          type="button"
-                          onClick={() => setViewedProfileUser(msg.sender!)}
-                          className="mb-1 ml-1 flex items-center gap-1.5 hover:opacity-90 cursor-pointer"
-                        >
-                          <UserAvatar user={msg.sender} size="sm" />
-                          <span className="text-xs font-medium text-zinc-300 hover:text-white">
-                            {msg.sender.displayName}
+                    <React.Fragment key={msg.id}>
+                      {showDaySeparator && (
+                        <div className="flex items-center gap-3 py-2" aria-label={formatDayLabel(msg.timestamp)}>
+                          <div className="h-px flex-1 bg-white/[0.06]" />
+                          <span className="text-[11px] font-medium text-zinc-500 whitespace-nowrap">
+                            {formatDayLabel(msg.timestamp)}
                           </span>
-                          <span className="font-mono text-[10px] text-zinc-500">
-                            {msg.sender.handle}
-                          </span>
-                        </button>
+                          <div className="h-px flex-1 bg-white/[0.06]" />
+                        </div>
                       )}
 
                       <div
-                        className={`relative max-w-[85%] sm:max-w-[68%] rounded-2xl px-4 py-2.5 backdrop-blur-xl transition-colors ${
-                          isMine
-                            ? `${myTone.bubbleBg} border ${myTone.bubbleBorder} text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]`
-                            : 'bg-white/[0.04] border border-white/[0.08] text-zinc-100 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]'
-                        }`}
+                        className={`group flex flex-col ${
+                          isNewEntry ? 'animate-msg-enter' : 'animate-msg-history'
+                        } ${isMine ? 'items-end' : 'items-start'}`}
                       >
-                        <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words">
-                          {msg.text}
-                        </p>
-
-                        {inspectorMode && (
-                          <div className="mt-2.5 pt-2 border-t border-white/[0.1] font-mono text-[10px] text-zinc-400 space-y-1 break-all">
-                            <div>
-                              <span className="text-zinc-500">AES-256-GCM: </span>
-                              <span>{msg.rawCiphertext}</span>
-                            </div>
-                            <div>
-                              <span className="text-zinc-500">IV: </span>
-                              <span>{msg.rawIv}</span>
-                            </div>
-                          </div>
+                        {showGroupSender && msg.sender && (
+                          <button
+                            type="button"
+                            onClick={() => setViewedProfileUser(msg.sender!)}
+                            className="mb-1 ml-1 flex items-center gap-1.5 hover:opacity-90 cursor-pointer"
+                          >
+                            <UserAvatar user={msg.sender} size="sm" />
+                            <span className="text-xs font-medium text-zinc-300 hover:text-white">
+                              {msg.sender.displayName}
+                            </span>
+                            <span className="font-mono text-[10px] text-zinc-500">
+                              {msg.sender.handle}
+                            </span>
+                          </button>
                         )}
 
                         <div
-                          className={`mt-1.5 flex items-center gap-2 text-[11px] ${
-                            isMine ? 'text-zinc-300/80 justify-end' : 'text-zinc-500'
+                          className={`relative max-w-[85%] sm:max-w-[68%] rounded-2xl px-4 py-2.5 backdrop-blur-xl transition-colors ${
+                            isMine
+                              ? `${myTone.bubbleBg} border ${myTone.bubbleBorder} text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]`
+                              : 'bg-white/[0.04] border border-white/[0.08] text-zinc-100 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]'
                           }`}
                         >
-                          <span className="font-mono tabular-nums">
-                            {formatTime(msg.timestamp)}
-                          </span>
+                          <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words">
+                            {msg.text}
+                          </p>
 
-                          {msg.verified && (
-                            <span
-                              title="Signature ECDSA vérifiée"
-                              className="inline-flex items-center gap-0.5 text-emerald-400/90"
-                            >
-                              <UserCheck className="h-3 w-3" />
+                          {inspectorMode && (
+                            <div className="mt-2.5 pt-2 border-t border-white/[0.1] font-mono text-[10px] text-zinc-400 space-y-1 break-all">
+                              <div>
+                                <span className="text-zinc-500">AES-256-GCM: </span>
+                                <span>{msg.rawCiphertext}</span>
+                              </div>
+                              <div>
+                                <span className="text-zinc-500">IV: </span>
+                                <span>{msg.rawIv}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <div
+                            className={`mt-1.5 flex items-center gap-2 text-[11px] ${
+                              isMine ? 'text-zinc-300/80 justify-end' : 'text-zinc-500'
+                            }`}
+                          >
+                            <span className="font-mono tabular-nums">
+                              {formatTime(msg.timestamp)}
                             </span>
-                          )}
 
-                          {msg.expiresAt !== null && (
-                            <span className="inline-flex items-center gap-1 font-mono text-amber-300/90 tabular-nums">
-                              <Clock className="h-3 w-3" />
-                              {formatRemaining(msg.expiresAt, nowTick)}
-                            </span>
-                          )}
+                            {msg.verified && (
+                              <span
+                                title="Signature ECDSA vérifiée"
+                                className="inline-flex items-center gap-0.5 text-emerald-400/90"
+                              >
+                                <UserCheck className="h-3 w-3" />
+                              </span>
+                            )}
 
-                          {isMine && activePeer && !isSelfSelected && (
-                            <span
-                              title={msg.readAt ? 'Lu' : 'Envoyé'}
-                              className="inline-flex items-center"
-                            >
-                              {msg.readAt ? (
-                                <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
-                              ) : (
-                                <Check className="h-3.5 w-3.5 text-zinc-400" />
-                              )}
-                            </span>
-                          )}
+                            {msg.expiresAt !== null && (
+                              <span className="inline-flex items-center gap-1 font-mono text-amber-300/90 tabular-nums">
+                                <Clock className="h-3 w-3" />
+                                {formatRemaining(msg.expiresAt, nowTick)}
+                              </span>
+                            )}
 
-                          {tts.supported && !msg.decryptionError && msg.text.trim().length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const speakerPrefix = isMine
-                                  ? undefined
-                                  : msg.groupId
-                                    ? msg.sender?.displayName
-                                    : activePeer?.displayName;
-                                tts.speakMessage(msg.id, msg.text, speakerPrefix);
-                              }}
-                              title={
-                                tts.speakingMessageId === msg.id
-                                  ? 'Arrêter la lecture'
-                                  : 'Écouter ce message (synthèse vocale locale)'
-                              }
-                              aria-label={
-                                tts.speakingMessageId === msg.id
-                                  ? 'Arrêter la lecture du message'
-                                  : 'Écouter ce message'
-                              }
-                              className={`ml-1 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
-                                tts.speakingMessageId === msg.id
-                                  ? 'opacity-100 text-emerald-400'
-                                  : 'opacity-70 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
-                              }`}
-                            >
-                              {tts.speakingMessageId === msg.id ? (
-                                <Square className="h-3 w-3 fill-current" />
-                              ) : (
-                                <Volume2 className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          )}
+                            {isMine && activePeer && !isSelfSelected && (
+                              <span
+                                title={msg.readAt ? 'Lu' : 'Envoyé'}
+                                className="inline-flex items-center"
+                              >
+                                {msg.readAt ? (
+                                  <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5 text-zinc-400" />
+                                )}
+                              </span>
+                            )}
 
-                          {(isMine ||
-                            isSelfSelected ||
-                            activeGroup?.creatorId === session.user.id) && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteMessage(msg)}
-                              title="Supprimer pour tous"
-                              aria-label="Supprimer le message"
-                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 ml-1 text-zinc-400 hover:text-red-400 transition-opacity cursor-pointer"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          )}
+                            {!msg.decryptionError && msg.text.trim().length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(msg.text).then(() => {
+                                    setCopiedMsgId(msg.id);
+                                    window.setTimeout(() => {
+                                      setCopiedMsgId((curr) =>
+                                        curr === msg.id ? null : curr
+                                      );
+                                    }, 1600);
+                                  }).catch(() => {});
+                                }}
+                                title="Copier le message"
+                                aria-label="Copier le message"
+                                className={`ml-0.5 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
+                                  copiedMsgId === msg.id
+                                    ? 'opacity-100 text-emerald-400'
+                                    : 'opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
+                                }`}
+                              >
+                                {copiedMsgId === msg.id ? (
+                                  <Check className="h-3 w-3" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                              </button>
+                            )}
+
+                            {tts.supported && !msg.decryptionError && msg.text.trim().length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const speakerPrefix = isMine
+                                    ? undefined
+                                    : msg.groupId
+                                      ? msg.sender?.displayName
+                                      : activePeer?.displayName;
+                                  tts.speakMessage(msg.id, msg.text, speakerPrefix);
+                                }}
+                                title={
+                                  tts.speakingMessageId === msg.id
+                                    ? 'Arrêter la lecture'
+                                    : 'Écouter ce message (synthèse vocale locale)'
+                                }
+                                aria-label={
+                                  tts.speakingMessageId === msg.id
+                                    ? 'Arrêter la lecture du message'
+                                    : 'Écouter ce message'
+                                }
+                                className={`ml-0.5 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
+                                  tts.speakingMessageId === msg.id
+                                    ? 'opacity-100 text-emerald-400'
+                                    : 'opacity-70 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
+                                }`}
+                              >
+                                {tts.speakingMessageId === msg.id ? (
+                                  <Square className="h-3 w-3 fill-current" />
+                                ) : (
+                                  <Volume2 className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            )}
+
+                            {(isMine ||
+                              isSelfSelected ||
+                              activeGroup?.creatorId === session.user.id) && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMessage(msg)}
+                                title="Supprimer pour tous"
+                                aria-label="Supprimer le message"
+                                className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 ml-0.5 text-zinc-400 hover:text-red-400 transition-opacity cursor-pointer"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </React.Fragment>
                   );
                 })
               )}
 
               {(isPeerTyping || activeGroupTypingUser) && (
                 <div className="flex items-start">
-                  <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-2.5 text-xs text-zinc-400">
-                    {activePeer
-                      ? `${activePeer.displayName} écrit...`
-                      : `${activeGroupTypingUser} écrit...`}
+                  <div className="inline-flex items-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-2.5 text-xs text-zinc-400">
+                    <span>
+                      {activePeer
+                        ? `${activePeer.displayName} écrit`
+                        : `${activeGroupTypingUser} écrit`}
+                    </span>
+                    <span className="inline-flex items-center gap-1" aria-hidden="true">
+                      <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-1" />
+                      <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-2" />
+                      <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-3" />
+                    </span>
                   </div>
                 </div>
               )}
@@ -2112,13 +2168,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   >
                     <div className="flex-1 glass-input rounded-2xl px-4 py-2.5 flex items-center gap-2">
                       <textarea
+                        ref={composerRef}
                         rows={1}
                         value={composerText}
-                        onChange={(e) => handleComposerChange(e.target.value)}
+                        onChange={(e) => {
+                          handleComposerChange(e.target.value);
+                          const el = composerRef.current;
+                          if (el) {
+                            el.style.height = 'auto';
+                            el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+                          }
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             handleSendMessage();
+                            if (composerRef.current) {
+                              composerRef.current.style.height = 'auto';
+                            }
                           }
                         }}
                         placeholder={
@@ -2132,14 +2199,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                               ? `Écrire dans ${activeGroup.name}...`
                               : 'Écrire un message chiffré de bout en bout...'
                         }
-                        className="w-full resize-none bg-transparent text-sm text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
+                        className="w-full resize-none bg-transparent text-sm leading-relaxed text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={!composerText.trim() || sending}
+                      onClick={() => {
+                        if (composerRef.current) {
+                          composerRef.current.style.height = 'auto';
+                        }
+                      }}
                       aria-label="Envoyer le message"
-                      className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-4 sm:px-5 text-sm font-medium text-zinc-950 transition-all hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-4 sm:px-5 text-sm font-medium text-zinc-950 transition-all hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                     >
                       <Send className="h-4 w-4" />
                       <span className="hidden sm:inline">Envoyer</span>
@@ -2151,12 +2223,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </>
         ) : (
           <div className="flex h-full items-center justify-center p-6">
-            <div className="glass-surface max-w-sm rounded-2xl p-6 text-center space-y-4">
-              <Lock className="mx-auto h-6 w-6 text-zinc-300" />
-              <p className="text-sm text-zinc-300">
-                Sélectionnez une discussion, ajoutez un contact ou créez un groupe chiffré.
-              </p>
-              <div className="flex items-center justify-center gap-2">
+            <div className="glass-surface max-w-sm rounded-2xl p-7 text-center space-y-4">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] text-zinc-200">
+                <Lock className="h-5 w-5" />
+              </div>
+              <div className="space-y-1.5">
+                <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                  Espace prêt et chiffré
+                </h2>
+                <p className="text-xs leading-relaxed text-zinc-400">
+                  Sélectionnez une conversation, ajoutez un contact par identifiant ou créez un groupe privé.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setIsContactModalOpen(true)}
@@ -2174,6 +2253,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   <span>Groupe</span>
                 </button>
               </div>
+              {onOpenPresentation && (
+                <button
+                  type="button"
+                  onClick={onOpenPresentation}
+                  className="text-xs text-zinc-400 hover:text-white hover:underline underline-offset-4 transition-colors cursor-pointer"
+                >
+                  Découvrir toutes les fonctionnalités
+                </button>
+              )}
             </div>
           </div>
         )}

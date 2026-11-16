@@ -158,7 +158,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="mx-auto max-w-[1200px] h-16 px-4 sm:px-8 flex items-center justify-between gap-8">
           <a
             href="#top"
-            className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white whitespace-nowrap shrink-0"
+            className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white whitespace-nowrap shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
           >
             DISCRET
           </a>
@@ -169,25 +169,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           >
             <a
               href="#capacites"
-              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               Capacités
             </a>
             <a
               href="#cryptographie"
-              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               Cryptographie
             </a>
             <a
               href="#voix"
-              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               Appels & Voix
             </a>
             <a
               href="#application"
-              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               Application
             </a>
@@ -198,7 +198,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={onReturnToWorkspace}
-                className="min-h-[40px] rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="min-h-[40px] rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 Retour à la messagerie
               </button>
@@ -206,7 +206,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenAuth('login')}
-                className="min-h-[40px] rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="min-h-[40px] rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 Accéder au coffre
               </button>
@@ -343,7 +343,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* Capabilities Bento Showcase */}
         <section
           id="capacites"
-          className="border-t border-white/[0.07] py-16 sm:py-24"
+          className="scroll-mt-20 border-t border-white/[0.07] py-16 sm:py-24"
         >
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8">
             <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
@@ -425,7 +425,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* Cryptographic Architecture Split */}
         <section
           id="cryptographie"
-          className="border-t border-white/[0.07] py-16 sm:py-24"
+          className="scroll-mt-20 border-t border-white/[0.07] py-16 sm:py-24"
         >
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch">
             <div className="lg:col-span-6 flex flex-col justify-center">
@@ -483,12 +483,51 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               )}
             </div>
           </div>
+
+          {/* 3-Step Quick Onboarding Strip */}
+          <div className="mx-auto max-w-[1200px] px-4 sm:px-8 mt-12">
+            <div className="grid grid-cols-1 md:grid-cols-3 rounded-2xl border border-white/[0.08] bg-white/[0.02] divide-y md:divide-y-0 md:divide-x divide-white/[0.08]">
+              <div className="p-6">
+                <span className="font-mono text-xs text-emerald-400 tabular-nums">
+                  Étape 1
+                </span>
+                <h3 className="mt-2 font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                  Générez votre clé 120 bits
+                </h3>
+                <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-zinc-400">
+                  Choisissez un pseudonyme optionnel : votre coffre et vos clés P-256 sont créés localement en moins d’une seconde.
+                </p>
+              </div>
+              <div className="p-6">
+                <span className="font-mono text-xs text-emerald-400 tabular-nums">
+                  Étape 2
+                </span>
+                <h3 className="mt-2 font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                  Partagez votre identifiant
+                </h3>
+                <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-zinc-400">
+                  Ajoutez vos proches via leur identifiant unique <span className="font-mono text-zinc-300">@pseudo#hash</span> ou rassemblez-les dans un groupe chiffré.
+                </p>
+              </div>
+              <div className="p-6">
+                <span className="font-mono text-xs text-emerald-400 tabular-nums">
+                  Étape 3
+                </span>
+                <h3 className="mt-2 font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                  Échangez, appelez, écoutez
+                </h3>
+                <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-zinc-400">
+                  Discutez avec messages éphémères, appels audio/vidéo WebRTC, notifications discrètes et synthèse vocale locale.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* Real-Time Calls, Voice & PWA Split */}
         <section
           id="voix"
-          className="border-t border-white/[0.07] py-16 sm:py-24"
+          className="scroll-mt-20 border-t border-white/[0.07] py-16 sm:py-24"
         >
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch">
             <div className="lg:col-span-6 order-2 lg:order-1 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0e]">
@@ -537,7 +576,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </p>
                 </div>
 
-                <div id="application">
+                <div id="application" className="scroll-mt-24">
                   <h3 className="text-sm font-semibold text-white">
                     Personnalisation, Push discret et installation PWA
                   </h3>

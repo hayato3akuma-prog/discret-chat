@@ -47,8 +47,20 @@ export async function ensureServiceWorkerRegistration(): Promise<ServiceWorkerRe
   }
 
   let registration = await navigator.serviceWorker.getRegistration('/');
+  if (import.meta.env.DEV && registration) {
+    const activeUrl =
+      registration.active?.scriptURL ||
+      registration.installing?.scriptURL ||
+      registration.waiting?.scriptURL ||
+      '';
+    if (activeUrl.includes('dev-sw.js')) {
+      await registration.unregister().catch(() => {});
+      registration = undefined;
+    }
+  }
+
   if (!registration) {
-    const swUrl = import.meta.env.DEV ? '/dev-sw.js?dev-sw' : '/sw.js';
+    const swUrl = import.meta.env.DEV ? '/sw-push.js' : '/sw.js';
     registration = await navigator.serviceWorker.register(swUrl, {
       scope: '/',
       type: 'classic',

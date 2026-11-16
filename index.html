@@ -25,6 +25,18 @@
   </head>
   <body class="bg-[#050507] text-[#F4F4F5] antialiased selection:bg-white/20 selection:text-white">
     <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          regs.forEach(function (reg) {
+            var u = (reg.active && reg.active.scriptURL) || (reg.installing && reg.installing.scriptURL) || (reg.waiting && reg.waiting.scriptURL) || '';
+            if (u.indexOf('dev-sw.js') !== -1) {
+              reg.unregister().catch(function () {});
+            }
+          });
+        }).catch(function () {});
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

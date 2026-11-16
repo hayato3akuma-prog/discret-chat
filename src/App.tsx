@@ -32,9 +32,16 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
+    const bootFallbackTimer = window.setTimeout(() => {
+      if (active) {
+        setAuthReady(true);
+        setRestoring(false);
+      }
+    }, 4000);
 
     const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (!active) return;
+      window.clearTimeout(bootFallbackTimer);
       setFirebaseUser(fbUser);
 
       if (!fbUser) {
@@ -59,40 +66,47 @@ export default function App() {
           fbUser.getIdToken(),
         ]);
 
-        let currentUser = parsed.user;
-        try {
-          const remoteProfile = await refreshPublicProfile(fbUser.uid);
-          if (remoteProfile) {
-            currentUser = remoteProfile;
-            await writeEncryptedLocalSession({
-              token: freshToken,
-              user: currentUser,
-              ecdhPrivateJwk: parsed.ecdhPrivateJwk,
-              ecdsaPrivateJwk: parsed.ecdsaPrivateJwk,
-            });
-          } else {
-            await clearEncryptedLocalSession();
-            if (active) {
-              setSession(null);
-              setAuthReady(true);
-              setRestoring(false);
-            }
-            return;
-          }
-        } catch {
-          // Offline or transient Firestore error: keep local unlocked session
-        }
-
         if (active) {
           setSession({
             token: freshToken,
-            user: currentUser,
+            user: parsed.user,
             ecdhPrivateKey: keys.ecdhPrivateKey,
             ecdsaPrivateKey: keys.ecdsaPrivateKey,
             ecdhPrivateJwk: parsed.ecdhPrivateJwk,
             ecdsaPrivateJwk: parsed.ecdsaPrivateJwk,
           });
+          setAuthReady(true);
+          setRestoring(false);
         }
+
+        // Refresh public profile in background so UI never blocks on Firestore latency
+        void refreshPublicProfile(fbUser.uid)
+          .then(async (remoteProfile) => {
+            if (!active) return;
+            if (remoteProfile) {
+              await writeEncryptedLocalSession({
+                token: freshToken,
+                user: remoteProfile,
+                ecdhPrivateJwk: parsed.ecdhPrivateJwk,
+                ecdsaPrivateJwk: parsed.ecdsaPrivateJwk,
+              });
+              if (active) {
+                setSession((prev) =>
+                  prev && prev.user.id === fbUser.uid
+                    ? { ...prev, user: remoteProfile }
+                    : prev
+                );
+              }
+            } else {
+              await clearEncryptedLocalSession();
+              if (active) {
+                setSession(null);
+              }
+            }
+          })
+          .catch(() => {
+            // Offline or transient Firestore error: keep local unlocked session
+          });
       } catch {
         await clearEncryptedLocalSession();
       } finally {
@@ -127,6 +141,7 @@ export default function App() {
 
     return () => {
       active = false;
+      window.clearTimeout(bootFallbackTimer);
       unsubAuth();
       unsubToken();
     };

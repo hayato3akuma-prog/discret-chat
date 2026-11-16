@@ -81,8 +81,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
-          type: 'classic',
+          enabled: false,
         },
       }),
     ],
