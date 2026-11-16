@@ -1,0 +1,749 @@
+{
+  "entities": {
+    "PrivateUser": {
+      "title": "PrivateUser",
+      "description": "Private encrypted cryptographic vault and DISCRET account record bound to the authenticated owner UID.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "handle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "lookupId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 128,
+          "pattern": "^[a-f0-9]+$"
+        },
+        "encryptedVault": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 8192
+        },
+        "vaultSalt": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "vaultIv": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "fingerprint": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 64
+        },
+        "ecdhPublicJwk": {
+          "type": "object"
+        },
+        "ecdsaPublicJwk": {
+          "type": "object"
+        },
+        "lastSeen": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "handle",
+        "displayName",
+        "lookupId",
+        "encryptedVault",
+        "vaultSalt",
+        "vaultIv",
+        "fingerprint",
+        "ecdhPublicJwk",
+        "ecdsaPublicJwk",
+        "lastSeen",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "Public E2EE directory profile containing pseudonym, avatar/banner customization, and ECDH/ECDSA public keys (no PII).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "handle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "biography": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "avatarDataUrl": {
+          "type": "string",
+          "maxLength": 160000
+        },
+        "avatarIcon": {
+          "type": "string",
+          "enum": ["initials", "shield", "moon", "compass", "eye", "feather", "diamond"]
+        },
+        "accentTone": {
+          "type": "string",
+          "enum": ["platinum", "emerald", "slate", "amber", "crimson"]
+        },
+        "bannerPreset": {
+          "type": "string",
+          "enum": ["none", "obsidian", "monolith", "eclipse", "emerald", "custom"]
+        },
+        "bannerDataUrl": {
+          "type": "string",
+          "maxLength": 260000
+        },
+        "ecdhPublicJwk": {
+          "type": "object"
+        },
+        "ecdsaPublicJwk": {
+          "type": "object"
+        },
+        "fingerprint": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 64
+        },
+        "createdAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "handle",
+        "displayName",
+        "bio",
+        "biography",
+        "avatarDataUrl",
+        "avatarIcon",
+        "accentTone",
+        "bannerPreset",
+        "bannerDataUrl",
+        "ecdhPublicJwk",
+        "ecdsaPublicJwk",
+        "fingerprint",
+        "createdAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "HandleIndex": {
+      "title": "HandleIndex",
+      "description": "Normalized @handle lookup entry pointing to a public profile userId.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "handle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "handle", "createdAt"]
+    },
+    "SearchBucket": {
+      "title": "SearchBucket",
+      "description": "Bounded prefix bucket (up to 12 userIds) enabling handle/pseudonym lookup without blanket collection list queries.",
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24,
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "userIds": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["prefix", "userIds", "updatedAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Direct encrypted conversation metadata and latest message preview envelope.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userA": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userB": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "participantIds": {
+          "type": "array"
+        },
+        "lastMessageId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageCiphertext": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "lastMessageIv": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageSignature": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "lastMessageFromId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageToId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageTimestamp": {
+          "type": "number"
+        },
+        "lastMessageExpiresAt": {
+          "type": "number"
+        },
+        "lastMessageReadAt": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userA",
+        "userB",
+        "participantIds",
+        "lastMessageId",
+        "lastMessageCiphertext",
+        "lastMessageIv",
+        "lastMessageSignature",
+        "lastMessageFromId",
+        "lastMessageToId",
+        "lastMessageTimestamp",
+        "lastMessageExpiresAt",
+        "lastMessageReadAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DirectMessage": {
+      "title": "DirectMessage",
+      "description": "End-to-end encrypted direct message envelope inside a conversation.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fromId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "toId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ciphertext": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "iv": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "timestamp": {
+          "type": "number"
+        },
+        "expiresAt": {
+          "type": "number"
+        },
+        "readAt": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "conversationId",
+        "fromId",
+        "toId",
+        "ciphertext",
+        "iv",
+        "signature",
+        "timestamp",
+        "expiresAt",
+        "readAt",
+        "createdAt"
+      ]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "End-to-end encrypted group room with bounded memberIds (max 25) and custom appearance.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "avatarDataUrl": {
+          "type": "string",
+          "maxLength": 160000
+        },
+        "bannerPreset": {
+          "type": "string",
+          "enum": ["none", "obsidian", "monolith", "eclipse", "emerald", "custom"]
+        },
+        "bannerDataUrl": {
+          "type": "string",
+          "maxLength": 260000
+        },
+        "accentTone": {
+          "type": "string",
+          "enum": ["platinum", "emerald", "slate", "amber", "crimson"]
+        },
+        "creatorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberIds": {
+          "type": "array"
+        },
+        "lastMessageId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageFromId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageCiphertext": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "lastMessageIv": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageSignature": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "lastMessageTimestamp": {
+          "type": "number"
+        },
+        "lastMessageExpiresAt": {
+          "type": "number"
+        },
+        "createdAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "avatarDataUrl",
+        "bannerPreset",
+        "bannerDataUrl",
+        "accentTone",
+        "creatorId",
+        "memberIds",
+        "lastMessageId",
+        "lastMessageFromId",
+        "lastMessageCiphertext",
+        "lastMessageIv",
+        "lastMessageSignature",
+        "lastMessageTimestamp",
+        "lastMessageExpiresAt",
+        "createdAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GroupMemberEnvelope": {
+      "title": "GroupMemberEnvelope",
+      "description": "Wrapped AES-GCM group key envelope assigned to an individual group member.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "groupId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "iv": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "wrappedKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "wrappedByUserId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "groupId", "iv", "wrappedKey", "wrappedByUserId", "createdAt"]
+    },
+    "GroupMessage": {
+      "title": "GroupMessage",
+      "description": "End-to-end encrypted group message envelope inside a group.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "groupId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fromId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ciphertext": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "iv": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "timestamp": {
+          "type": "number"
+        },
+        "expiresAt": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "groupId",
+        "fromId",
+        "ciphertext",
+        "iv",
+        "signature",
+        "timestamp",
+        "expiresAt",
+        "createdAt"
+      ]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Pending friend request between two users.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fromId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "toId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "participantIds": {
+          "type": "array"
+        },
+        "createdAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "fromId", "toId", "participantIds", "createdAtMs", "createdAt"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Confirmed bidirectional friendship created from an accepted friend request.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userA": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userB": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "participantIds": {
+          "type": "array"
+        },
+        "createdAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "userA", "userB", "participantIds", "createdAtMs", "createdAt"]
+    },
+    "UserBlock": {
+      "title": "UserBlock",
+      "description": "Directional user block record preventing DMs, friend requests, and group invites.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "blockerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "participantIds": {
+          "type": "array"
+        },
+        "createdAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "blockerId", "targetId", "participantIds", "createdAtMs", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/PrivateUser" },
+      "description": "Owner-only private encrypted key vault and DISCRET identity record."
+    },
+    "/publicProfiles/{userId}": {
+      "schema": { "$ref": "#/entities/PublicProfile" },
+      "description": "Public E2EE profile (pseudonym, public keys, avatar, banner, bio) keyed by userId."
+    },
+    "/handleIndex/{handleKey}": {
+      "schema": { "$ref": "#/entities/HandleIndex" },
+      "description": "Exact normalized handle lookup pointing to userId."
+    },
+    "/searchBuckets/{prefix}": {
+      "schema": { "$ref": "#/entities/SearchBucket" },
+      "description": "Prefix lookup buckets containing up to 12 userIds."
+    },
+    "/conversations/{convId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Direct conversation documents between userA and userB."
+    },
+    "/conversations/{convId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/DirectMessage" },
+      "description": "End-to-end encrypted direct message subcollection."
+    },
+    "/groups/{groupId}": {
+      "schema": { "$ref": "#/entities/Group" },
+      "description": "Encrypted group documents with bounded memberIds array."
+    },
+    "/groups/{groupId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/GroupMemberEnvelope" },
+      "description": "Wrapped group symmetric key envelopes per member."
+    },
+    "/groups/{groupId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/GroupMessage" },
+      "description": "End-to-end encrypted group message subcollection."
+    },
+    "/friendRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/FriendRequest" },
+      "description": "Pending friend requests keyed by fromId__toId."
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Mutual friendships keyed by sorted userA__userB."
+    },
+    "/blocks/{blockId}": {
+      "schema": { "$ref": "#/entities/UserBlock" },
+      "description": "User blocks keyed by blockerId__targetId."
+    }
+  }
+}

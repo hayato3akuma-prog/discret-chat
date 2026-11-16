@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import {
+  AlertCircle,
+  ArrowRight,
   Check,
   Copy,
   Download,
@@ -8,27 +10,68 @@ import {
   KeyRound,
   Lock,
   ShieldCheck,
-  ArrowRight,
-  AlertCircle,
 } from 'lucide-react';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
 import {
   createIdentityFromAccessKey,
   deriveLookupId,
+  deriveVaultAuthCredentials,
   generateUniqueAccessKey,
-  signChallenge,
   unlockVaultWithAccessKey,
 } from '../lib/crypto';
+import { auth } from '../lib/firebase';
+import {
+  createDiscretAccountInFirestore,
+  fetchPublicProfile,
+  getPrivateUserDoc,
+} from '../lib/firestoreStore';
 import type { PublicUser, UnlockedSession } from '../types';
 import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
 
 interface AuthGateProps {
+  initialTab?: AuthTab;
   onAuthenticated: (session: UnlockedSession) => void;
+  onShowPresentation?: () => void;
 }
 
 type AuthTab = 'login' | 'create';
 
-export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
-  const [tab, setTab] = useState<AuthTab>('login');
+function mapAuthError(err: unknown): string {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code?: string }).code)
+      : '';
+
+  if (
+    code === 'auth/invalid-credential' ||
+    code === 'auth/user-not-found' ||
+    code === 'auth/wrong-password' ||
+    code === 'auth/invalid-email'
+  ) {
+    return 'Clé unique introuvable ou invalide.';
+  }
+  if (code === 'auth/too-many-requests') {
+    return 'Trop de tentatives consécutives. Patientez un instant avant de réessayer.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Connexion réseau indisponible. Vérifiez votre accès internet.';
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return 'Erreur lors de l’authentification cryptographique.';
+}
+
+export const AuthGate: React.FC<AuthGateProps> = ({
+  initialTab = 'login',
+  onAuthenticated,
+  onShowPresentation,
+}) => {
+  const [tab, setTab] = useState<AuthTab>(initialTab);
 
   // Login state
   const [loginKey, setLoginKey] = useState('');
@@ -59,57 +102,61 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
     setLoginLoading(true);
     try {
-      const lookupId = await deriveLookupId(trimmed);
-      const chRes = await fetch('/api/auth/challenge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lookupId }),
-      });
+      const [{ vaultEmail, vaultPassword }, lookupId] = await Promise.all([
+        deriveVaultAuthCredentials(trimmed),
+        deriveLookupId(trimmed),
+      ]);
 
-      const chData = await chRes.json();
-      if (!chRes.ok) {
-        throw new Error(chData.error || 'Clé unique introuvable.');
+      const cred = await signInWithEmailAndPassword(auth, vaultEmail, vaultPassword);
+      const vaultDoc = await getPrivateUserDoc(cred.user.uid);
+      if (!vaultDoc) {
+        await signOut(auth).catch(() => {});
+        throw new Error('Aucun coffre chiffré associé à cette clé unique.');
+      }
+
+      if (lookupId !== vaultDoc.lookupId) {
+        await signOut(auth).catch(() => {});
+        throw new Error('Empreinte de clé incompatible avec ce coffre.');
       }
 
       let unlocked;
       try {
         unlocked = await unlockVaultWithAccessKey(
           trimmed,
-          chData.vaultSalt,
-          chData.vaultIv,
-          chData.encryptedVault
+          vaultDoc.vaultSalt,
+          vaultDoc.vaultIv,
+          vaultDoc.encryptedVault
         );
       } catch {
+        await signOut(auth).catch(() => {});
         throw new Error('Clé unique invalide. Déchiffrement local refusé.');
       }
 
-      const signature = await signChallenge(unlocked.ecdsaPrivateKey, chData.challenge);
+      const [publicUser, idToken] = await Promise.all([
+        fetchPublicProfile(cred.user.uid),
+        cred.user.getIdToken(),
+      ]);
 
-      const verRes = await fetch('/api/auth/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: chData.userId,
-          challenge: chData.challenge,
-          signature,
-        }),
-      });
-
-      const verData = await verRes.json();
-      if (!verRes.ok) {
-        throw new Error(verData.error || 'Échec de vérification.');
-      }
+      const resolvedUser: PublicUser = publicUser ?? {
+        id: cred.user.uid,
+        handle: vaultDoc.handle,
+        displayName: vaultDoc.displayName,
+        ecdhPublicJwk: vaultDoc.ecdhPublicJwk,
+        ecdsaPublicJwk: vaultDoc.ecdsaPublicJwk,
+        fingerprint: vaultDoc.fingerprint,
+        createdAt: Date.now(),
+      };
 
       onAuthenticated({
-        token: verData.token as string,
-        user: verData.user as PublicUser,
+        token: idToken,
+        user: resolvedUser,
         ecdhPrivateKey: unlocked.ecdhPrivateKey,
         ecdsaPrivateKey: unlocked.ecdsaPrivateKey,
         ecdhPrivateJwk: unlocked.ecdhPrivateJwk,
         ecdsaPrivateJwk: unlocked.ecdsaPrivateJwk,
       });
     } catch (err) {
-      setLoginError(err instanceof Error ? err.message : 'Erreur de connexion.');
+      setLoginError(mapAuthError(err));
     } finally {
       setLoginLoading(false);
     }
@@ -118,43 +165,46 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   async function handleCreateAccount(e: React.FormEvent) {
     e.preventDefault();
     setCreateError(null);
-    setCreateLoading(true);
 
+    setCreateLoading(true);
     try {
       const accessKey = generateUniqueAccessKey();
-      const identity = await createIdentityFromAccessKey(accessKey);
+      const [identity, { vaultEmail, vaultPassword }] = await Promise.all([
+        createIdentityFromAccessKey(accessKey),
+        deriveVaultAuthCredentials(accessKey),
+      ]);
 
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lookupId: identity.lookupId,
-          displayName: displayName.trim() || 'Anonyme',
-          ecdhPublicJwk: identity.ecdhPublicJwk,
-          ecdsaPublicJwk: identity.ecdsaPublicJwk,
-          fingerprint: identity.fingerprint,
-          encryptedVault: identity.encryptedVault,
-          vaultSalt: identity.vaultSalt,
-          vaultIv: identity.vaultIv,
-        }),
-      });
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        vaultEmail,
+        vaultPassword
+      );
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Impossible de créer le compte.');
+      try {
+        const [createdUser, idToken] = await Promise.all([
+          createDiscretAccountInFirestore({
+            uid: cred.user.uid,
+            displayName: displayName.trim() || 'Anonyme',
+            identity,
+          }),
+          cred.user.getIdToken(),
+        ]);
+
+        setGeneratedKey(accessKey);
+        setPendingSession({
+          token: idToken,
+          user: createdUser,
+          ecdhPrivateKey: identity.ecdhPrivateKey,
+          ecdsaPrivateKey: identity.ecdsaPrivateKey,
+          ecdhPrivateJwk: identity.ecdhPrivateJwk,
+          ecdsaPrivateJwk: identity.ecdsaPrivateJwk,
+        });
+      } catch (innerErr) {
+        await signOut(auth).catch(() => {});
+        throw innerErr;
       }
-
-      setGeneratedKey(accessKey);
-      setPendingSession({
-        token: data.token as string,
-        user: data.user as PublicUser,
-        ecdhPrivateKey: identity.ecdhPrivateKey,
-        ecdsaPrivateKey: identity.ecdsaPrivateKey,
-        ecdhPrivateJwk: identity.ecdhPrivateJwk,
-        ecdsaPrivateJwk: identity.ecdsaPrivateJwk,
-      });
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Erreur lors de la création.');
+      setCreateError(mapAuthError(err));
     } finally {
       setCreateLoading(false);
     }
@@ -182,9 +232,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
       'CLÉ UNIQUE (CONSERVEZ-LA PRÉCIEUSEMENT) :',
       generatedKey,
       '',
-      'Avertissement :',
-      'Aucun e-mail ni mot de passe n’est associé à ce compte.',
-      'Cette clé est votre unique moyen d’accès et de déchiffrement.',
+      'Sécurité :',
+      'Aucune adresse e-mail, aucun compte Google, aucun numéro de téléphone.',
+      'Cette clé unique dérive votre accès et déchiffre localement votre coffre ECDH/ECDSA P-256.',
+      'Conservez-la hors-ligne pour retrouver vos conversations sur tout appareil.',
     ].join('\n');
 
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -217,12 +268,33 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
       {/* Minimal top wordmark */}
       <header className="relative z-10 mx-auto w-full max-w-5xl flex items-center justify-between gap-4">
-        <span className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white whitespace-nowrap">
-          DISCRET
-        </span>
+        <div className="flex items-center gap-6">
+          {onShowPresentation ? (
+            <button
+              type="button"
+              onClick={onShowPresentation}
+              className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white hover:text-zinc-300 transition-colors whitespace-nowrap cursor-pointer"
+            >
+              DISCRET
+            </button>
+          ) : (
+            <span className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white whitespace-nowrap">
+              DISCRET
+            </span>
+          )}
+          {onShowPresentation && (
+            <button
+              type="button"
+              onClick={onShowPresentation}
+              className="text-xs font-medium text-zinc-400 hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap cursor-pointer"
+            >
+              Présentation du site
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-zinc-400 hidden sm:inline">
-            Chiffrement de bout en bout · Sans e-mail
+            Zéro Google · Zéro e-mail · Chiffrement de bout en bout
           </span>
           <PWAInstallButton compact onOpenModal={() => setInstallModalOpen(true)} />
         </div>
@@ -238,14 +310,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
             Messagerie privée souveraine
           </h1>
           <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">
-            Aucun e-mail, aucun numéro. Votre clé unique générée localement est votre seul accès.
+            Aucun compte tiers, aucun numéro, aucun e-mail. Votre seule clé cryptographique protège et restaure votre coffre.
           </p>
         </div>
 
         <div className="glass-elevated rounded-2xl p-6 sm:p-7">
           {!generatedKey ? (
             <>
-              {/* Segmented mode selector */}
               <div
                 role="tablist"
                 aria-label="Mode d'accès"
@@ -259,7 +330,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                     setTab('login');
                     setLoginError(null);
                   }}
-                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap ${
+                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
                     tab === 'login'
                       ? 'bg-white text-zinc-950 shadow-sm'
                       : 'text-zinc-400 hover:text-white'
@@ -275,13 +346,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                     setTab('create');
                     setCreateError(null);
                   }}
-                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap ${
+                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
                     tab === 'create'
                       ? 'bg-white text-zinc-950 shadow-sm'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  Créer un compte
+                  Créer ma clé
                 </button>
               </div>
 
@@ -310,7 +381,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                         type="button"
                         onClick={() => setShowLoginKey((v) => !v)}
                         aria-label={showLoginKey ? 'Masquer la clé' : 'Afficher la clé'}
-                        className="mr-2.5 p-1.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                        className="mr-2.5 p-1.5 text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer"
                       >
                         {showLoginKey ? (
                           <EyeOff className="h-4 w-4" />
@@ -343,7 +414,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   </button>
 
                   <p className="pt-1 text-center text-xs text-zinc-500">
-                    La clé est vérifiée par défi cryptographique local et n’est jamais transmise au serveur.
+                    Déchiffrement local PBKDF2 (250 000 itérations) + AES-256-GCM.
                   </p>
                 </form>
               ) : (
@@ -365,7 +436,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                       className="w-full glass-input rounded-xl px-3.5 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none"
                     />
                     <p className="mt-2 text-xs text-zinc-500">
-                      Un identifiant public unique (ex. @sora#4a9f) sera généré automatiquement.
+                      Une clé 120 bits et un identifiant public unique (ex. @sora#4a9f) seront générés localement.
                     </p>
                   </div>
 
@@ -393,8 +464,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   </button>
 
                   <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-xs text-zinc-500">
-                    <span>ECDH P-256 + AES-256-GCM</span>
-                    <span>Zéro e-mail</span>
+                    <span>ECDH P-256 + ECDSA P-256</span>
+                    <span>Zéro connaissance</span>
                   </div>
                 </form>
               )}
@@ -404,13 +475,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
               <div>
                 <p className="text-xs font-medium text-emerald-400 flex items-center gap-1.5">
                   <ShieldCheck className="h-4 w-4" />
-                  <span>Compte chiffré créé avec succès</span>
+                  <span>Coffre chiffré créé et synchronisé</span>
                 </p>
                 <h2 className="mt-1.5 font-[family-name:var(--font-display)] text-lg font-semibold text-white">
                   Votre clé unique d’accès
                 </h2>
                 <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-                  Copiez ou téléchargez cette clé maintenant. Sans e-mail de récupération, elle est l’unique moyen de rouvrir votre compte.
+                  Copiez ou téléchargez cette clé maintenant. Aucun compte Google ni e-mail n’y est lié : elle seule déchiffre votre coffre.
                 </p>
               </div>
 
@@ -472,7 +543,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   className="mt-0.5 h-4 w-4 rounded border-white/20 bg-transparent accent-white"
                 />
                 <span className="text-xs leading-relaxed text-zinc-300">
-                  J’ai sauvegardé ma clé unique en lieu sûr. Je comprends qu’elle ne pourra jamais être réaffichée.
+                  J’ai sauvegardé ma clé unique en lieu sûr. Sans elle, personne ne peut déchiffrer mon coffre ni récupérer mon accès.
                 </span>
               </label>
 
@@ -492,7 +563,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
       <footer className="relative z-10 mx-auto w-full max-w-5xl flex items-center justify-between text-xs text-zinc-600">
         <span>Chiffrement client Web Crypto API</span>
-        <span>Aucune donnée personnelle collectée</span>
+        <span>Persistance chiffrée sans compte Google</span>
       </footer>
 
       <AppInstallModal

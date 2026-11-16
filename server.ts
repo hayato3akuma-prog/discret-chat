@@ -7,79 +7,6 @@ import express from 'express';
 import * as webpush from 'web-push';
 import { WebSocket, WebSocketServer } from 'ws';
 
-interface StoredUser {
-  id: string;
-  lookupId: string;
-  handle: string;
-  displayName: string;
-  bio?: string;
-  biography?: string;
-  avatarDataUrl?: string | null;
-  avatarIcon?: string;
-  accentTone?: string;
-  bannerPreset?: string;
-  bannerDataUrl?: string | null;
-  ecdhPublicJwk: Record<string, unknown>;
-  ecdsaPublicJwk: Record<string, unknown>;
-  fingerprint: string;
-  encryptedVault: string;
-  vaultSalt: string;
-  vaultIv: string;
-  createdAt: number;
-  lastSeen: number;
-}
-
-interface StoredMessage {
-  id: string;
-  conversationId: string;
-  fromId: string;
-  toId: string;
-  ciphertext: string;
-  iv: string;
-  signature: string;
-  timestamp: number;
-  expiresAt: number | null;
-  readAt: number | null;
-}
-
-interface StoredGroupKeyEnvelope {
-  iv: string;
-  wrappedKey: string;
-  wrappedByUserId: string;
-}
-
-interface StoredGroup {
-  id: string;
-  name: string;
-  description?: string;
-  avatarDataUrl?: string | null;
-  bannerPreset?: string;
-  bannerDataUrl?: string | null;
-  accentTone?: string;
-  creatorId: string;
-  memberIds: string[];
-  keyEnvelopes: Record<string, StoredGroupKeyEnvelope>;
-  createdAt: number;
-}
-
-interface StoredGroupMessage {
-  id: string;
-  groupId: string;
-  fromId: string;
-  ciphertext: string;
-  iv: string;
-  signature: string;
-  timestamp: number;
-  expiresAt: number | null;
-}
-
-interface StoredFriendRequest {
-  id: string;
-  fromId: string;
-  toId: string;
-  createdAt: number;
-}
-
 interface StoredPushSubscription {
   endpoint: string;
   expirationTime: number | null;
@@ -98,78 +25,194 @@ interface VapidKeyPair {
   privateKey: string;
 }
 
-interface VaultDiskState {
-  users: StoredUser[];
-  messages: StoredMessage[];
-  contacts: Record<string, string[]>;
-  groups: StoredGroup[];
-  groupMessages: StoredGroupMessage[];
-  friendships: Record<string, string[]>;
-  friendRequests: StoredFriendRequest[];
-  blocks: Record<string, string[]>;
+interface PushDiskState {
   pushSubscriptions: Record<string, StoredPushSubscription[]>;
-  sessions: Record<string, SessionRecord>;
   vapidKeys?: VapidKeyPair;
 }
 
-interface PendingChallenge {
-  challenge: string;
-  userId: string;
-  expiresAt: number;
+interface GoogleJwk extends crypto.JsonWebKey {
+  kid?: string;
+  alg?: string;
+  use?: string;
 }
 
-interface SessionRecord {
-  userId: string;
-  createdAt: number;
+interface VerifiedFirebaseToken {
+  uid: string;
+  email?: string;
+  name?: string;
 }
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.resolve(process.cwd(), 'data');
-const VAULT_FILE = path.join(DATA_DIR, 'vault.json');
+const PUSH_STORE_FILE = path.join(DATA_DIR, 'push-store.json');
+const LEGACY_VAULT_FILE = path.join(DATA_DIR, 'vault.json');
+const FIREBASE_CONFIG_FILE = path.resolve(process.cwd(), 'firebase-applet-config.json');
 
-function loadVault(): VaultDiskState {
+function resolveFirebaseProjectId(): string {
+  const envId = process.env.FIREBASE_PROJECT_ID?.trim();
+  if (envId) return envId;
+  try {
+    const raw = fs.readFileSync(FIREBASE_CONFIG_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as { projectId?: string };
+    if (typeof parsed.projectId === 'string' && parsed.projectId.trim()) {
+      return parsed.projectId.trim();
+    }
+  } catch (err) {
+    console.error('Unable to read firebase-applet-config.json:', err);
+  }
+  return '';
+}
+
+const FIREBASE_PROJECT_ID = resolveFirebaseProjectId();
+const GOOGLE_JWKS_URL =
+  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+
+let cachedJwks: Map<string, crypto.KeyObject> = new Map();
+let cachedJwksExpiresAt = 0;
+
+async function getGooglePublicKey(
+  kid: string,
+  forceRefresh = false
+): Promise<crypto.KeyObject | null> {
+  const now = Date.now();
+  if (!forceRefresh && now < cachedJwksExpiresAt && cachedJwks.has(kid)) {
+    return cachedJwks.get(kid) ?? null;
+  }
+
+  try {
+    const res = await fetch(GOOGLE_JWKS_URL);
+    if (!res.ok) return cachedJwks.get(kid) ?? null;
+
+    const cacheControl = res.headers.get('cache-control') || '';
+    const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
+    const maxAgeSec = maxAgeMatch ? Math.max(Number(maxAgeMatch[1]), 60) : 3600;
+
+    const body = (await res.json()) as { keys?: GoogleJwk[] };
+    const nextMap = new Map<string, crypto.KeyObject>();
+    for (const jwk of body.keys ?? []) {
+      if (typeof jwk.kid === 'string') {
+        try {
+          const keyObj = crypto.createPublicKey({
+            key: jwk,
+            format: 'jwk',
+          });
+          nextMap.set(jwk.kid, keyObj);
+        } catch {
+          // Skip invalid JWK entry
+        }
+      }
+    }
+
+    if (nextMap.size > 0) {
+      cachedJwks = nextMap;
+      cachedJwksExpiresAt = now + maxAgeSec * 1000;
+    }
+  } catch (err) {
+    console.error('Failed to refresh Google Firebase JWKS:', err);
+  }
+
+  return cachedJwks.get(kid) ?? null;
+}
+
+function decodeBase64UrlJson<T>(segment: string): T | null {
+  try {
+    const jsonStr = Buffer.from(segment, 'base64url').toString('utf8');
+    return JSON.parse(jsonStr) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function verifyFirebaseIdToken(
+  token: string
+): Promise<VerifiedFirebaseToken | null> {
+  if (!FIREBASE_PROJECT_ID || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  const [headerB64, payloadB64, sigB64] = parts;
+  const header = decodeBase64UrlJson<{ alg?: string; kid?: string }>(headerB64);
+  const payload = decodeBase64UrlJson<{
+    aud?: string;
+    iss?: string;
+    sub?: string;
+    exp?: number;
+    iat?: number;
+    auth_time?: number;
+    email?: string;
+    name?: string;
+  }>(payloadB64);
+
+  if (!header || !payload) return null;
+  if (header.alg !== 'RS256' || typeof header.kid !== 'string' || !header.kid) {
+    return null;
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (payload.aud !== FIREBASE_PROJECT_ID) return null;
+  if (payload.iss !== `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`) {
+    return null;
+  }
+  if (
+    typeof payload.sub !== 'string' ||
+    payload.sub.length === 0 ||
+    payload.sub.length > 128
+  ) {
+    return null;
+  }
+  if (typeof payload.exp !== 'number' || payload.exp <= nowSec - 30) {
+    return null;
+  }
+  if (typeof payload.iat !== 'number' || payload.iat > nowSec + 60) {
+    return null;
+  }
+  if (typeof payload.auth_time === 'number' && payload.auth_time > nowSec + 60) {
+    return null;
+  }
+
+  let publicKey = await getGooglePublicKey(header.kid, false);
+  if (!publicKey) {
+    publicKey = await getGooglePublicKey(header.kid, true);
+  }
+  if (!publicKey) return null;
+
+  try {
+    const signingInput = Buffer.from(`${headerB64}.${payloadB64}`, 'utf8');
+    const signature = Buffer.from(sigB64, 'base64url');
+    const verified = crypto.verify('sha256', signingInput, publicKey, signature);
+    if (!verified) return null;
+    return {
+      uid: payload.sub,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
+      name: typeof payload.name === 'string' ? payload.name : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function loadPushState(): PushDiskState {
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    if (!fs.existsSync(VAULT_FILE)) {
-      return {
-        users: [],
-        messages: [],
-        contacts: {},
-        groups: [],
-        groupMessages: [],
-        friendships: {},
-        friendRequests: [],
-        blocks: {},
-        pushSubscriptions: {},
-        sessions: {},
-      };
+
+    const sourceFile = fs.existsSync(PUSH_STORE_FILE)
+      ? PUSH_STORE_FILE
+      : fs.existsSync(LEGACY_VAULT_FILE)
+        ? LEGACY_VAULT_FILE
+        : null;
+
+    if (!sourceFile) {
+      return { pushSubscriptions: {} };
     }
-    const raw = fs.readFileSync(VAULT_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<VaultDiskState>;
+
+    const raw = fs.readFileSync(sourceFile, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<PushDiskState>;
     return {
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-      contacts: parsed.contacts && typeof parsed.contacts === 'object' ? parsed.contacts : {},
-      groups: Array.isArray(parsed.groups) ? parsed.groups : [],
-      groupMessages: Array.isArray(parsed.groupMessages) ? parsed.groupMessages : [],
-      friendships:
-        parsed.friendships && typeof parsed.friendships === 'object'
-          ? parsed.friendships
-          : {},
-      friendRequests: Array.isArray(parsed.friendRequests)
-        ? parsed.friendRequests
-        : [],
-      blocks:
-        parsed.blocks && typeof parsed.blocks === 'object' ? parsed.blocks : {},
       pushSubscriptions:
         parsed.pushSubscriptions && typeof parsed.pushSubscriptions === 'object'
           ? parsed.pushSubscriptions
-          : {},
-      sessions:
-        parsed.sessions && typeof parsed.sessions === 'object'
-          ? parsed.sessions
           : {},
       vapidKeys:
         parsed.vapidKeys &&
@@ -179,46 +222,16 @@ function loadVault(): VaultDiskState {
           : undefined,
     };
   } catch (err) {
-    console.error('Failed to load vault.json, initializing fresh store:', err);
-    return {
-      users: [],
-      messages: [],
-      contacts: {},
-      groups: [],
-      groupMessages: [],
-      friendships: {},
-      friendRequests: [],
-      blocks: {},
-      pushSubscriptions: {},
-      sessions: {},
-    };
+    console.error('Failed to load push store, initializing empty store:', err);
+    return { pushSubscriptions: {} };
   }
 }
 
-const state: VaultDiskState = loadVault();
-const challenges = new Map<string, PendingChallenge>();
-const sessions = new Map<string, SessionRecord>(Object.entries(state.sessions));
+const pushState: PushDiskState = loadPushState();
 const activeSockets = new Map<string, Set<WebSocket>>();
 
-function createPersistedSession(userId: string, now = Date.now()): string {
-  const token = crypto.randomBytes(32).toString('hex');
-  const record: SessionRecord = { userId, createdAt: now };
-  sessions.set(token, record);
-  state.sessions[token] = record;
-  schedulePersist();
-  return token;
-}
-
-function deletePersistedSession(token: string) {
-  sessions.delete(token);
-  if (state.sessions[token]) {
-    delete state.sessions[token];
-    schedulePersist();
-  }
-}
-
 let writeTimer: NodeJS.Timeout | null = null;
-function schedulePersist() {
+function schedulePersistPushState() {
   if (writeTimer) return;
   writeTimer = setTimeout(() => {
     writeTimer = null;
@@ -226,64 +239,34 @@ function schedulePersist() {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      const tmpFile = `${VAULT_FILE}.tmp`;
-      fs.writeFileSync(tmpFile, JSON.stringify(state), 'utf8');
-      fs.renameSync(tmpFile, VAULT_FILE);
+      const tmpFile = `${PUSH_STORE_FILE}.tmp`;
+      fs.writeFileSync(tmpFile, JSON.stringify(pushState), 'utf8');
+      fs.renameSync(tmpFile, PUSH_STORE_FILE);
     } catch (err) {
-      console.error('Failed to persist vault state:', err);
+      console.error('Failed to persist push store:', err);
     }
   }, 150);
 }
 
-function toPublicUser(u: StoredUser) {
-  return {
-    id: u.id,
-    handle: u.handle,
-    displayName: u.displayName,
-    bio: u.bio ?? '',
-    biography: u.biography ?? '',
-    avatarDataUrl: u.avatarDataUrl ?? null,
-    avatarIcon: u.avatarIcon ?? 'initials',
-    accentTone: u.accentTone ?? 'platinum',
-    bannerPreset: u.bannerPreset ?? 'obsidian',
-    bannerDataUrl: u.bannerDataUrl ?? null,
-    ecdhPublicJwk: u.ecdhPublicJwk,
-    ecdsaPublicJwk: u.ecdsaPublicJwk,
-    fingerprint: u.fingerprint,
-    createdAt: u.createdAt,
-  };
+function resolveVapidKeys(): VapidKeyPair {
+  const envPub = process.env.VAPID_PUBLIC_KEY?.trim();
+  const envPriv = process.env.VAPID_PRIVATE_KEY?.trim();
+  if (envPub && envPriv) {
+    return { publicKey: envPub, privateKey: envPriv };
+  }
+  if (pushState.vapidKeys?.publicKey && pushState.vapidKeys?.privateKey) {
+    return pushState.vapidKeys;
+  }
+  const generated = webpush.generateVAPIDKeys();
+  pushState.vapidKeys = generated;
+  schedulePersistPushState();
+  return generated;
 }
 
-function sanitizeHandlePrefix(displayName: string): string {
-  const cleaned = displayName
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, '')
-    .slice(0, 14);
-  return cleaned || 'ombre';
-}
-
-function generateUniqueHandle(displayName: string): string {
-  const base = sanitizeHandlePrefix(displayName);
-  for (let i = 0; i < 10; i++) {
-    const suffix = crypto.randomBytes(2).toString('hex');
-    const candidate = `@${base}#${suffix}`;
-    if (!state.users.some((u) => u.handle.toLowerCase() === candidate.toLowerCase())) {
-      return candidate;
-    }
-  }
-  return `@${base}#${crypto.randomBytes(3).toString('hex')}`;
-}
-
-function ensureContactLink(userId: string, peerId: string) {
-  if (!state.contacts[userId]) {
-    state.contacts[userId] = [];
-  }
-  if (!state.contacts[userId].includes(peerId)) {
-    state.contacts[userId].push(peerId);
-  }
-}
+const vapidKeys = resolveVapidKeys();
+const vapidSubject =
+  process.env.VAPID_SUBJECT?.trim() || 'mailto:security@discret.app';
+webpush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
 
 function sendToUser(userId: string, payload: unknown) {
   const sockets = activeSockets.get(userId);
@@ -295,25 +278,6 @@ function sendToUser(userId: string, payload: unknown) {
     }
   }
 }
-
-function resolveVapidKeys(): VapidKeyPair {
-  const envPub = process.env.VAPID_PUBLIC_KEY?.trim();
-  const envPriv = process.env.VAPID_PRIVATE_KEY?.trim();
-  if (envPub && envPriv) {
-    return { publicKey: envPub, privateKey: envPriv };
-  }
-  if (state.vapidKeys?.publicKey && state.vapidKeys?.privateKey) {
-    return state.vapidKeys;
-  }
-  const generated = webpush.generateVAPIDKeys();
-  state.vapidKeys = generated;
-  schedulePersist();
-  return generated;
-}
-
-const vapidKeys = resolveVapidKeys();
-const vapidSubject = process.env.VAPID_SUBJECT?.trim() || 'mailto:security@discret.app';
-webpush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
 
 interface PushNotificationBuildContext {
   title: string;
@@ -329,7 +293,7 @@ async function sendPushToUser(
   userId: string,
   payload: PushNotificationBuildContext
 ): Promise<{ sent: number; failed: number; removed: number }> {
-  const subs = state.pushSubscriptions[userId];
+  const subs = pushState.pushSubscriptions[userId];
   if (!Array.isArray(subs) || subs.length === 0) {
     return { sent: 0, failed: 0, removed: 0 };
   }
@@ -376,1316 +340,66 @@ async function sendPushToUser(
   );
 
   if (invalidEndpoints.size > 0) {
-    state.pushSubscriptions[userId] = subs.filter(
+    pushState.pushSubscriptions[userId] = subs.filter(
       (s) => !invalidEndpoints.has(s.endpoint)
     );
-    schedulePersist();
+    schedulePersistPushState();
   }
 
   return { sent, failed, removed: invalidEndpoints.size };
 }
 
-function isBlockedBy(blockerId: string, targetId: string): boolean {
-  const list = state.blocks[blockerId];
-  return Array.isArray(list) && list.includes(targetId);
-}
-
-function isBlockedBetween(userA: string, userB: string): boolean {
-  return isBlockedBy(userA, userB) || isBlockedBy(userB, userA);
-}
-
-function areFriends(userA: string, userB: string): boolean {
-  const list = state.friendships[userA];
-  return Array.isArray(list) && list.includes(userB);
-}
-
-function addFriendship(userA: string, userB: string) {
-  if (!state.friendships[userA]) state.friendships[userA] = [];
-  if (!state.friendships[userB]) state.friendships[userB] = [];
-  if (!state.friendships[userA].includes(userB)) state.friendships[userA].push(userB);
-  if (!state.friendships[userB].includes(userA)) state.friendships[userB].push(userA);
-}
-
-function removeFriendship(userA: string, userB: string) {
-  if (state.friendships[userA]) {
-    state.friendships[userA] = state.friendships[userA].filter((id) => id !== userB);
+function sanitizeCallerProfile(
+  rawCaller: unknown,
+  authenticatedUid: string
+): Record<string, unknown> {
+  if (!rawCaller || typeof rawCaller !== 'object') {
+    return {
+      id: authenticatedUid,
+      handle: '@discret',
+      displayName: 'Contact DISCRET',
+    };
   }
-  if (state.friendships[userB]) {
-    state.friendships[userB] = state.friendships[userB].filter((id) => id !== userA);
-  }
-}
-
-function removeRequestsBetween(userA: string, userB: string) {
-  state.friendRequests = state.friendRequests.filter(
-    (r) =>
-      !(
-        (r.fromId === userA && r.toId === userB) ||
-        (r.fromId === userB && r.toId === userA)
-      )
-  );
-}
-
-function buildFriendsSnapshot(userId: string) {
-  const friendIds = state.friendships[userId] ?? [];
-  const friends = friendIds
-    .map((id) => state.users.find((u) => u.id === id))
-    .filter((u): u is StoredUser => Boolean(u))
-    .map(toPublicUser)
-    .sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'));
-
-  const blockedIds = state.blocks[userId] ?? [];
-  const blocked = blockedIds
-    .map((id) => state.users.find((u) => u.id === id))
-    .filter((u): u is StoredUser => Boolean(u))
-    .map(toPublicUser);
-
-  const blockedByIds = Object.entries(state.blocks)
-    .filter(([, list]) => Array.isArray(list) && list.includes(userId))
-    .map(([blockerId]) => blockerId);
-
-  const incoming = state.friendRequests
-    .filter((r) => r.toId === userId)
-    .map((r) => {
-      const fromUser = state.users.find((u) => u.id === r.fromId);
-      const toUser = state.users.find((u) => u.id === r.toId);
-      if (!fromUser || !toUser) return null;
-      return {
-        id: r.id,
-        fromUser: toPublicUser(fromUser),
-        toUser: toPublicUser(toUser),
-        createdAt: r.createdAt,
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null)
-    .sort((a, b) => b.createdAt - a.createdAt);
-
-  const outgoing = state.friendRequests
-    .filter((r) => r.fromId === userId)
-    .map((r) => {
-      const fromUser = state.users.find((u) => u.id === r.fromId);
-      const toUser = state.users.find((u) => u.id === r.toId);
-      if (!fromUser || !toUser) return null;
-      return {
-        id: r.id,
-        fromUser: toPublicUser(fromUser),
-        toUser: toPublicUser(toUser),
-        createdAt: r.createdAt,
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null)
-    .sort((a, b) => b.createdAt - a.createdAt);
-
+  const c = rawCaller as Record<string, unknown>;
   return {
-    friends,
-    incoming,
-    outgoing,
-    blocked,
-    blockedByIds,
+    ...c,
+    id: authenticatedUid,
+    displayName:
+      typeof c.displayName === 'string' && c.displayName.trim()
+        ? c.displayName.trim().slice(0, 32)
+        : 'Contact DISCRET',
+    handle: typeof c.handle === 'string' ? c.handle.slice(0, 40) : '@discret',
   };
 }
-
-function toPublicGroup(g: StoredGroup) {
-  const members = g.memberIds
-    .map((id) => state.users.find((u) => u.id === id))
-    .filter((u): u is StoredUser => Boolean(u))
-    .map(toPublicUser);
-
-  const msgs = state.groupMessages
-    .filter((m) => m.groupId === g.id)
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  return {
-    id: g.id,
-    name: g.name,
-    description: g.description ?? '',
-    avatarDataUrl: g.avatarDataUrl ?? null,
-    bannerPreset: g.bannerPreset ?? 'monolith',
-    bannerDataUrl: g.bannerDataUrl ?? null,
-    accentTone: g.accentTone ?? 'platinum',
-    creatorId: g.creatorId,
-    members,
-    keyEnvelopes: g.keyEnvelopes,
-    createdAt: g.createdAt,
-    lastMessage: msgs.length > 0 ? msgs[msgs.length - 1] : null,
-  };
-}
-
-function sendToGroup(group: StoredGroup, payload: unknown, excludeUserId?: string) {
-  for (const memberId of group.memberIds) {
-    if (excludeUserId && memberId === excludeUserId) continue;
-    sendToUser(memberId, payload);
-  }
-}
-
-function pruneExpiredMessages(): boolean {
-  const now = Date.now();
-  const before = state.messages.length;
-  const beforeGroup = state.groupMessages.length;
-  const expired: StoredMessage[] = [];
-  state.messages = state.messages.filter((m) => {
-    if (m.expiresAt !== null && m.expiresAt <= now) {
-      expired.push(m);
-      return false;
-    }
-    return true;
-  });
-  if (expired.length > 0) {
-    for (const m of expired) {
-      sendToUser(m.fromId, { type: 'message:delete', messageId: m.id, conversationId: m.conversationId });
-      if (m.toId !== m.fromId) {
-        sendToUser(m.toId, { type: 'message:delete', messageId: m.id, conversationId: m.conversationId });
-      }
-    }
-    schedulePersist();
-  }
-
-  const expiredGroup: StoredGroupMessage[] = [];
-  state.groupMessages = state.groupMessages.filter((m) => {
-    if (m.expiresAt !== null && m.expiresAt <= now) {
-      expiredGroup.push(m);
-      return false;
-    }
-    return true;
-  });
-  if (expiredGroup.length > 0) {
-    for (const m of expiredGroup) {
-      const group = state.groups.find((g) => g.id === m.groupId);
-      if (group) {
-        sendToGroup(group, {
-          type: 'group:message:delete',
-          messageId: m.id,
-          groupId: m.groupId,
-        });
-      }
-    }
-    schedulePersist();
-  }
-
-  return state.messages.length !== before || state.groupMessages.length !== beforeGroup;
-}
-
-setInterval(() => {
-  pruneExpiredMessages();
-  const now = Date.now();
-  for (const [key, ch] of challenges.entries()) {
-    if (ch.expiresAt <= now) challenges.delete(key);
-  }
-}, 5000);
 
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '512kb' }));
 
-  function getAuthUser(req: express.Request): StoredUser | null {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-    const token = authHeader.slice(7).trim();
-    const session = sessions.get(token);
-    if (!session) return null;
-    return state.users.find((u) => u.id === session.userId) ?? null;
-  }
+  type AuthedRequest = express.Request & { authUid: string };
 
-  function requireAuth(
+  async function requireAuth(
     req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ) {
-    const user = getAuthUser(req);
-    if (!user) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Jeton Firebase manquant.' });
+      return;
+    }
+    const token = authHeader.slice(7).trim();
+    const verified = await verifyFirebaseIdToken(token);
+    if (!verified) {
       res.status(401).json({ error: 'Session expirée ou non authentifiée.' });
       return;
     }
-    (req as express.Request & { currentUser: StoredUser }).currentUser = user;
+    (req as AuthedRequest).authUid = verified.uid;
     next();
   }
 
-  // Register a new zero-email account using client-generated keys
-  app.post('/api/auth/register', (req, res) => {
-    const {
-      lookupId,
-      displayName,
-      ecdhPublicJwk,
-      ecdsaPublicJwk,
-      fingerprint,
-      encryptedVault,
-      vaultSalt,
-      vaultIv,
-    } = req.body ?? {};
-
-    if (
-      typeof lookupId !== 'string' ||
-      lookupId.length < 32 ||
-      !ecdhPublicJwk ||
-      !ecdsaPublicJwk ||
-      typeof fingerprint !== 'string' ||
-      typeof encryptedVault !== 'string' ||
-      typeof vaultSalt !== 'string' ||
-      typeof vaultIv !== 'string'
-    ) {
-      res.status(400).json({ error: 'Données cryptographiques incomplètes.' });
-      return;
-    }
-
-    if (state.users.some((u) => u.lookupId === lookupId)) {
-      res.status(409).json({ error: 'Cette clé existe déjà.' });
-      return;
-    }
-
-    const cleanName =
-      typeof displayName === 'string' && displayName.trim().length > 0
-        ? displayName.trim().slice(0, 32)
-        : 'Anonyme';
-
-    const now = Date.now();
-    const user: StoredUser = {
-      id: crypto.randomUUID(),
-      lookupId,
-      handle: generateUniqueHandle(cleanName),
-      displayName: cleanName,
-      ecdhPublicJwk,
-      ecdsaPublicJwk,
-      fingerprint,
-      encryptedVault,
-      vaultSalt,
-      vaultIv,
-      createdAt: now,
-      lastSeen: now,
-    };
-
-    state.users.push(user);
-    ensureContactLink(user.id, user.id);
-    schedulePersist();
-
-    const token = createPersistedSession(user.id, now);
-
-    res.status(201).json({ token, user: toPublicUser(user) });
-  });
-
-  // Step 1 of zero-knowledge login: request challenge + encrypted private vault
-  app.post('/api/auth/challenge', (req, res) => {
-    const { lookupId } = req.body ?? {};
-    if (typeof lookupId !== 'string' || lookupId.length < 32) {
-      res.status(400).json({ error: 'Identifiant de clé invalide.' });
-      return;
-    }
-
-    const user = state.users.find((u) => u.lookupId === lookupId);
-    if (!user) {
-      res.status(404).json({ error: 'Aucun compte associé à cette clé unique.' });
-      return;
-    }
-
-    const challenge = crypto.randomBytes(32).toString('base64');
-    challenges.set(challenge, {
-      challenge,
-      userId: user.id,
-      expiresAt: Date.now() + 90_000,
-    });
-
-    res.json({
-      userId: user.id,
-      handle: user.handle,
-      displayName: user.displayName,
-      challenge,
-      vaultSalt: user.vaultSalt,
-      vaultIv: user.vaultIv,
-      encryptedVault: user.encryptedVault,
-    });
-  });
-
-  // Step 2 of zero-knowledge login: verify ECDSA signature of challenge
-  app.post('/api/auth/verify', (req, res) => {
-    const { userId, challenge, signature } = req.body ?? {};
-    if (
-      typeof userId !== 'string' ||
-      typeof challenge !== 'string' ||
-      typeof signature !== 'string'
-    ) {
-      res.status(400).json({ error: 'Requête de vérification invalide.' });
-      return;
-    }
-
-    const pending = challenges.get(challenge);
-    if (!pending || pending.userId !== userId || pending.expiresAt < Date.now()) {
-      res.status(401).json({ error: 'Défi cryptographique expiré ou invalide.' });
-      return;
-    }
-    challenges.delete(challenge);
-
-    const user = state.users.find((u) => u.id === userId);
-    if (!user) {
-      res.status(404).json({ error: 'Compte introuvable.' });
-      return;
-    }
-
-    try {
-      const publicKey = crypto.createPublicKey({
-        key: user.ecdsaPublicJwk as crypto.JsonWebKey,
-        format: 'jwk',
-      });
-      const sigBuffer = Buffer.from(signature, 'base64');
-      const isValid = crypto.verify(
-        'sha256',
-        Buffer.from(challenge, 'utf8'),
-        { key: publicKey, dsaEncoding: 'ieee-p1363' },
-        sigBuffer
-      );
-
-      if (!isValid) {
-        res.status(401).json({ error: 'Signature cryptographique invalide.' });
-        return;
-      }
-    } catch {
-      res.status(401).json({ error: 'Échec de la vérification cryptographique.' });
-      return;
-    }
-
-    user.lastSeen = Date.now();
-    schedulePersist();
-
-    const token = createPersistedSession(user.id, Date.now());
-
-    res.json({ token, user: toPublicUser(user) });
-  });
-
-  app.post('/api/auth/logout', (req, res) => {
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.slice(7).trim();
-      deletePersistedSession(token);
-    }
-    res.json({ ok: true });
-  });
-
-  app.get('/api/me', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    res.json({ user: toPublicUser(me) });
-  });
-
-  app.patch('/api/me', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const {
-      displayName,
-      bio,
-      biography,
-      avatarDataUrl,
-      avatarIcon,
-      accentTone,
-      bannerPreset,
-      bannerDataUrl,
-    } = req.body ?? {};
-
-    if (typeof displayName === 'string' && displayName.trim().length > 0) {
-      me.displayName = displayName.trim().slice(0, 32);
-    }
-    if (typeof bio === 'string') {
-      me.bio = bio.trim().slice(0, 80);
-    }
-    if (typeof biography === 'string') {
-      me.biography = biography.trim().slice(0, 400);
-    }
-    if (avatarDataUrl === null) {
-      me.avatarDataUrl = null;
-    } else if (
-      typeof avatarDataUrl === 'string' &&
-      avatarDataUrl.startsWith('data:image/') &&
-      avatarDataUrl.length <= 120_000
-    ) {
-      me.avatarDataUrl = avatarDataUrl;
-    }
-    const allowedIcons = ['initials', 'shield', 'moon', 'compass', 'eye', 'feather', 'diamond'];
-    if (typeof avatarIcon === 'string' && allowedIcons.includes(avatarIcon)) {
-      me.avatarIcon = avatarIcon;
-    }
-    const allowedTones = ['platinum', 'emerald', 'slate', 'amber', 'crimson'];
-    if (typeof accentTone === 'string' && allowedTones.includes(accentTone)) {
-      me.accentTone = accentTone;
-    }
-    const allowedBanners = ['none', 'obsidian', 'monolith', 'eclipse', 'emerald', 'custom'];
-    if (typeof bannerPreset === 'string' && allowedBanners.includes(bannerPreset)) {
-      me.bannerPreset = bannerPreset;
-    }
-    if (bannerDataUrl === null) {
-      me.bannerDataUrl = null;
-    } else if (
-      typeof bannerDataUrl === 'string' &&
-      bannerDataUrl.startsWith('data:image/') &&
-      bannerDataUrl.length <= 220_000
-    ) {
-      me.bannerDataUrl = bannerDataUrl;
-    }
-
-    schedulePersist();
-    const updatedUser = toPublicUser(me);
-
-    const profilePayload = JSON.stringify({
-      type: 'profile:update',
-      user: updatedUser,
-    });
-    for (const sockets of activeSockets.values()) {
-      for (const ws of sockets) {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(profilePayload);
-        }
-      }
-    }
-
-    res.json({ user: updatedUser });
-  });
-
-  // Search users by handle or display name (public key directory)
-  app.get('/api/users/search', requireAuth, (req, res) => {
-    const q = String(req.query.q ?? '').trim().toLowerCase();
-    if (q.length < 2) {
-      res.json({ users: [] });
-      return;
-    }
-
-    const matches = state.users
-      .filter(
-        (u) =>
-          u.handle.toLowerCase().includes(q) ||
-          u.displayName.toLowerCase().includes(q) ||
-          u.fingerprint.toLowerCase().replace(/\s+/g, '').includes(q.replace(/\s+/g, ''))
-      )
-      .slice(0, 12)
-      .map(toPublicUser);
-
-    res.json({ users: matches });
-  });
-
-  app.get('/api/users/:id', requireAuth, (req, res) => {
-    const user = state.users.find((u) => u.id === req.params.id);
-    if (!user) {
-      res.status(404).json({ error: 'Utilisateur introuvable.' });
-      return;
-    }
-    res.json({ user: toPublicUser(user) });
-  });
-
-  app.post('/api/conversations/open', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const { peerId, handle } = req.body ?? {};
-    let peer: StoredUser | undefined;
-    if (typeof peerId === 'string') {
-      peer = state.users.find((u) => u.id === peerId);
-    } else if (typeof handle === 'string') {
-      const normalized = handle.trim().toLowerCase();
-      peer = state.users.find((u) => u.handle.toLowerCase() === normalized);
-    }
-    if (!peer) {
-      res.status(404).json({ error: 'Destinataire introuvable.' });
-      return;
-    }
-
-    ensureContactLink(me.id, peer.id);
-    schedulePersist();
-    res.json({ peer: toPublicUser(peer) });
-  });
-
-  app.get('/api/conversations', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    pruneExpiredMessages();
-
-    const contactIds = new Set<string>(state.contacts[me.id] ?? []);
-    contactIds.add(me.id); // Always include self-vault
-
-    for (const msg of state.messages) {
-      if (msg.fromId === me.id) contactIds.add(msg.toId);
-      if (msg.toId === me.id) contactIds.add(msg.fromId);
-    }
-
-    const summaries = Array.from(contactIds)
-      .map((peerId) => {
-        const peer = state.users.find((u) => u.id === peerId);
-        if (!peer) return null;
-
-        const convId = [me.id, peerId].sort().join('__');
-        const convMsgs = state.messages.filter((m) => m.conversationId === convId);
-        const lastMessage = convMsgs.length > 0 ? convMsgs[convMsgs.length - 1] : null;
-        const unreadCount = convMsgs.filter(
-          (m) => m.toId === me.id && m.fromId !== me.id && m.readAt === null
-        ).length;
-
-        return {
-          peer: toPublicUser(peer),
-          lastMessage,
-          unreadCount,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
-      .sort((a, b) => {
-        const tsA = a.lastMessage?.timestamp ?? (a.peer.id === me.id ? 1 : 0);
-        const tsB = b.lastMessage?.timestamp ?? (b.peer.id === me.id ? 1 : 0);
-        return tsB - tsA;
-      });
-
-    res.json({ conversations: summaries });
-  });
-
-  app.get('/api/messages/:peerId', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const peerId = req.params.peerId;
-    pruneExpiredMessages();
-
-    const convId = [me.id, peerId].sort().join('__');
-    const messages = state.messages
-      .filter((m) => m.conversationId === convId)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    res.json({ messages });
-  });
-
-  app.post('/api/messages', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const {
-      id,
-      toId,
-      ciphertext,
-      iv,
-      signature,
-      timestamp,
-      ttlSeconds,
-    } = req.body ?? {};
-
-    if (
-      typeof id !== 'string' ||
-      typeof toId !== 'string' ||
-      typeof ciphertext !== 'string' ||
-      typeof iv !== 'string' ||
-      typeof signature !== 'string' ||
-      typeof timestamp !== 'number'
-    ) {
-      res.status(400).json({ error: 'Enveloppe chiffrée invalide.' });
-      return;
-    }
-
-    const recipient = state.users.find((u) => u.id === toId);
-    if (!recipient) {
-      res.status(404).json({ error: 'Destinataire introuvable.' });
-      return;
-    }
-
-    if (toId !== me.id && isBlockedBetween(me.id, toId)) {
-      res.status(403).json({
-        error: 'Action impossible : un blocage est actif entre vous et cet utilisateur.',
-      });
-      return;
-    }
-
-    // Idempotency guard
-    const existing = state.messages.find((m) => m.id === id);
-    if (existing) {
-      res.status(200).json({ message: existing });
-      return;
-    }
-
-    const convId = [me.id, toId].sort().join('__');
-    const ttl = typeof ttlSeconds === 'number' && ttlSeconds > 0 ? ttlSeconds : 0;
-    const envelope: StoredMessage = {
-      id,
-      conversationId: convId,
-      fromId: me.id,
-      toId,
-      ciphertext,
-      iv,
-      signature,
-      timestamp,
-      expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : null,
-      readAt: toId === me.id ? Date.now() : null,
-    };
-
-    state.messages.push(envelope);
-    ensureContactLink(me.id, toId);
-    ensureContactLink(toId, me.id);
-    schedulePersist();
-
-    sendToUser(toId, { type: 'message:new', message: envelope, sender: toPublicUser(me) });
-    if (toId !== me.id) {
-      sendToUser(me.id, { type: 'message:new', message: envelope, sender: toPublicUser(me) });
-      void sendPushToUser(toId, {
-        title: `Nouveau message de ${me.displayName}`,
-        body: 'Message chiffré reçu • Appuyez pour déchiffrer',
-        discreetTitle: 'DISCRET',
-        discreetBody: 'Nouveau message chiffré reçu',
-        tag: `dm-msg-${envelope.id}`,
-        data: {
-          url: `/?open=dm&peerId=${encodeURIComponent(me.id)}`,
-          type: 'dm',
-          peerId: me.id,
-          messageId: envelope.id,
-        },
-      });
-    }
-
-    res.status(201).json({ message: envelope });
-  });
-
-  app.post('/api/messages/read', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const { peerId } = req.body ?? {};
-    if (typeof peerId !== 'string') {
-      res.status(400).json({ error: 'peerId manquant.' });
-      return;
-    }
-
-    const now = Date.now();
-    const updatedIds: string[] = [];
-    for (const msg of state.messages) {
-      if (msg.fromId === peerId && msg.toId === me.id && msg.readAt === null) {
-        msg.readAt = now;
-        updatedIds.push(msg.id);
-      }
-    }
-
-    if (updatedIds.length > 0) {
-      schedulePersist();
-      sendToUser(peerId, {
-        type: 'message:read',
-        readerId: me.id,
-        messageIds: updatedIds,
-        readAt: now,
-      });
-    }
-
-    res.json({ updatedIds });
-  });
-
-  app.delete('/api/messages/:messageId', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const msgIdx = state.messages.findIndex((m) => m.id === req.params.messageId);
-    if (msgIdx === -1) {
-      res.status(404).json({ error: 'Message introuvable.' });
-      return;
-    }
-
-    const msg = state.messages[msgIdx];
-    if (msg.fromId !== me.id && msg.toId !== me.id) {
-      res.status(403).json({ error: 'Accès refusé.' });
-      return;
-    }
-
-    state.messages.splice(msgIdx, 1);
-    schedulePersist();
-
-    sendToUser(msg.fromId, {
-      type: 'message:delete',
-      messageId: msg.id,
-      conversationId: msg.conversationId,
-    });
-    if (msg.toId !== msg.fromId) {
-      sendToUser(msg.toId, {
-        type: 'message:delete',
-        messageId: msg.id,
-        conversationId: msg.conversationId,
-      });
-    }
-
-    res.json({ ok: true });
-  });
-
   // ============================================================================
-  // E2EE Groups API
-  // ============================================================================
-
-  app.get('/api/groups', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    pruneExpiredMessages();
-
-    const groups = state.groups
-      .filter((g) => g.memberIds.includes(me.id))
-      .map(toPublicGroup)
-      .sort((a, b) => {
-        const tsA = a.lastMessage?.timestamp ?? a.createdAt;
-        const tsB = b.lastMessage?.timestamp ?? b.createdAt;
-        return tsB - tsA;
-      });
-
-    res.json({ groups });
-  });
-
-  app.post('/api/groups', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const {
-      name,
-      description,
-      avatarDataUrl,
-      bannerPreset,
-      bannerDataUrl,
-      accentTone,
-      memberIds,
-      keyEnvelopes,
-    } = req.body ?? {};
-
-    if (typeof name !== 'string' || name.trim().length === 0) {
-      res.status(400).json({ error: 'Le nom du groupe est requis.' });
-      return;
-    }
-
-    const uniqueMemberIds = Array.from(
-      new Set<string>([
-        me.id,
-        ...(Array.isArray(memberIds)
-          ? memberIds.filter((id): id is string => typeof id === 'string')
-          : []),
-      ])
-    ).filter((id) => state.users.some((u) => u.id === id));
-
-    if (!keyEnvelopes || typeof keyEnvelopes !== 'object') {
-      res.status(400).json({ error: 'Enveloppes de clé de groupe manquantes.' });
-      return;
-    }
-
-    for (const mId of uniqueMemberIds) {
-      const env = (keyEnvelopes as Record<string, StoredGroupKeyEnvelope>)[mId];
-      if (!env || typeof env.iv !== 'string' || typeof env.wrappedKey !== 'string') {
-        res.status(400).json({ error: 'Clé de groupe manquante pour un membre.' });
-        return;
-      }
-    }
-
-    const allowedBanners = ['none', 'obsidian', 'monolith', 'eclipse', 'emerald', 'custom'];
-    const allowedTones = ['platinum', 'emerald', 'slate', 'amber', 'crimson'];
-
-    const safeAvatar =
-      typeof avatarDataUrl === 'string' &&
-      avatarDataUrl.startsWith('data:image/') &&
-      avatarDataUrl.length <= 120_000
-        ? avatarDataUrl
-        : null;
-
-    const safeBanner =
-      typeof bannerDataUrl === 'string' &&
-      bannerDataUrl.startsWith('data:image/') &&
-      bannerDataUrl.length <= 220_000
-        ? bannerDataUrl
-        : null;
-
-    const group: StoredGroup = {
-      id: crypto.randomUUID(),
-      name: name.trim().slice(0, 40),
-      description: typeof description === 'string' ? description.trim().slice(0, 100) : '',
-      avatarDataUrl: safeAvatar,
-      bannerPreset:
-        typeof bannerPreset === 'string' && allowedBanners.includes(bannerPreset)
-          ? bannerPreset
-          : 'monolith',
-      bannerDataUrl: safeBanner,
-      accentTone:
-        typeof accentTone === 'string' && allowedTones.includes(accentTone)
-          ? accentTone
-          : 'platinum',
-      creatorId: me.id,
-      memberIds: uniqueMemberIds,
-      keyEnvelopes: keyEnvelopes as Record<string, StoredGroupKeyEnvelope>,
-      createdAt: Date.now(),
-    };
-
-    state.groups.push(group);
-    schedulePersist();
-
-    const publicGroup = toPublicGroup(group);
-    sendToGroup(group, { type: 'group:new', group: publicGroup });
-
-    res.status(201).json({ group: publicGroup });
-  });
-
-  app.patch('/api/groups/:groupId', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const group = state.groups.find((g) => g.id === req.params.groupId);
-    if (!group || !group.memberIds.includes(me.id)) {
-      res.status(404).json({ error: 'Groupe introuvable.' });
-      return;
-    }
-
-    const {
-      name,
-      description,
-      avatarDataUrl,
-      bannerPreset,
-      bannerDataUrl,
-      accentTone,
-    } = req.body ?? {};
-    if (typeof name === 'string' && name.trim().length > 0) {
-      group.name = name.trim().slice(0, 40);
-    }
-    if (typeof description === 'string') {
-      group.description = description.trim().slice(0, 100);
-    }
-    if (avatarDataUrl === null) {
-      group.avatarDataUrl = null;
-    } else if (
-      typeof avatarDataUrl === 'string' &&
-      avatarDataUrl.startsWith('data:image/') &&
-      avatarDataUrl.length <= 120_000
-    ) {
-      group.avatarDataUrl = avatarDataUrl;
-    }
-    const allowedBanners = ['none', 'obsidian', 'monolith', 'eclipse', 'emerald', 'custom'];
-    if (typeof bannerPreset === 'string' && allowedBanners.includes(bannerPreset)) {
-      group.bannerPreset = bannerPreset;
-    }
-    if (bannerDataUrl === null) {
-      group.bannerDataUrl = null;
-    } else if (
-      typeof bannerDataUrl === 'string' &&
-      bannerDataUrl.startsWith('data:image/') &&
-      bannerDataUrl.length <= 220_000
-    ) {
-      group.bannerDataUrl = bannerDataUrl;
-    }
-    const allowedTones = ['platinum', 'emerald', 'slate', 'amber', 'crimson'];
-    if (typeof accentTone === 'string' && allowedTones.includes(accentTone)) {
-      group.accentTone = accentTone;
-    }
-
-    schedulePersist();
-    const publicGroup = toPublicGroup(group);
-    sendToGroup(group, { type: 'group:update', group: publicGroup });
-    res.json({ group: publicGroup });
-  });
-
-  app.post('/api/groups/:groupId/members', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const group = state.groups.find((g) => g.id === req.params.groupId);
-    if (!group || !group.memberIds.includes(me.id)) {
-      res.status(404).json({ error: 'Groupe introuvable.' });
-      return;
-    }
-
-    const { userId, keyEnvelope } = req.body ?? {};
-    if (
-      typeof userId !== 'string' ||
-      !state.users.some((u) => u.id === userId) ||
-      !keyEnvelope ||
-      typeof keyEnvelope.iv !== 'string' ||
-      typeof keyEnvelope.wrappedKey !== 'string' ||
-      typeof keyEnvelope.wrappedByUserId !== 'string'
-    ) {
-      res.status(400).json({ error: 'Données de membre invalides.' });
-      return;
-    }
-
-    if (isBlockedBetween(me.id, userId)) {
-      res.status(403).json({
-        error: 'Impossible d’inviter un utilisateur bloqué.',
-      });
-      return;
-    }
-
-    if (!group.memberIds.includes(userId)) {
-      group.memberIds.push(userId);
-    }
-    group.keyEnvelopes[userId] = keyEnvelope as StoredGroupKeyEnvelope;
-    schedulePersist();
-
-    const publicGroup = toPublicGroup(group);
-    sendToUser(userId, { type: 'group:new', group: publicGroup });
-    sendToGroup(group, { type: 'group:update', group: publicGroup }, userId);
-    res.json({ group: publicGroup });
-  });
-
-  app.post('/api/groups/:groupId/leave', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const groupIdx = state.groups.findIndex((g) => g.id === req.params.groupId);
-    if (groupIdx === -1) {
-      res.status(404).json({ error: 'Groupe introuvable.' });
-      return;
-    }
-    const group = state.groups[groupIdx];
-    if (!group.memberIds.includes(me.id)) {
-      res.status(403).json({ error: 'Non membre.' });
-      return;
-    }
-
-    group.memberIds = group.memberIds.filter((id) => id !== me.id);
-    delete group.keyEnvelopes[me.id];
-
-    if (group.memberIds.length === 0) {
-      state.groups.splice(groupIdx, 1);
-      state.groupMessages = state.groupMessages.filter((m) => m.groupId !== group.id);
-    } else {
-      const publicGroup = toPublicGroup(group);
-      sendToGroup(group, { type: 'group:update', group: publicGroup });
-    }
-
-    schedulePersist();
-    res.json({ ok: true });
-  });
-
-  app.delete('/api/groups/:groupId', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const groupIdx = state.groups.findIndex((g) => g.id === req.params.groupId);
-    if (groupIdx === -1) {
-      res.status(404).json({ error: 'Groupe introuvable.' });
-      return;
-    }
-    const group = state.groups[groupIdx];
-    if (!group.memberIds.includes(me.id)) {
-      res.status(403).json({ error: 'Accès refusé.' });
-      return;
-    }
-    if (group.creatorId !== me.id) {
-      res.status(403).json({
-        error: 'Seul le fondateur peut supprimer définitivement ce groupe.',
-      });
-      return;
-    }
-
-    const memberIds = [...group.memberIds];
-    state.groups.splice(groupIdx, 1);
-    state.groupMessages = state.groupMessages.filter((m) => m.groupId !== group.id);
-    schedulePersist();
-
-    for (const memberId of memberIds) {
-      sendToUser(memberId, { type: 'group:delete', groupId: group.id });
-    }
-
-    res.json({ ok: true, groupId: group.id });
-  });
-
-  app.get('/api/groups/:groupId/messages', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const group = state.groups.find((g) => g.id === req.params.groupId);
-    if (!group || !group.memberIds.includes(me.id)) {
-      res.status(404).json({ error: 'Groupe introuvable.' });
-      return;
-    }
-
-    pruneExpiredMessages();
-    const messages = state.groupMessages
-      .filter((m) => m.groupId === group.id)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    res.json({ messages });
-  });
-
-  app.post('/api/groups/:groupId/messages', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const group = state.groups.find((g) => g.id === req.params.groupId);
-    if (!group || !group.memberIds.includes(me.id)) {
-      res.status(404).json({ error: 'Groupe introuvable.' });
-      return;
-    }
-
-    const { id, ciphertext, iv, signature, timestamp, ttlSeconds } = req.body ?? {};
-    if (
-      typeof id !== 'string' ||
-      typeof ciphertext !== 'string' ||
-      typeof iv !== 'string' ||
-      typeof signature !== 'string' ||
-      typeof timestamp !== 'number'
-    ) {
-      res.status(400).json({ error: 'Enveloppe chiffrée de groupe invalide.' });
-      return;
-    }
-
-    const existing = state.groupMessages.find((m) => m.id === id);
-    if (existing) {
-      res.status(200).json({ message: existing });
-      return;
-    }
-
-    const ttl = typeof ttlSeconds === 'number' && ttlSeconds > 0 ? ttlSeconds : 0;
-    const envelope: StoredGroupMessage = {
-      id,
-      groupId: group.id,
-      fromId: me.id,
-      ciphertext,
-      iv,
-      signature,
-      timestamp,
-      expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : null,
-    };
-
-    state.groupMessages.push(envelope);
-    schedulePersist();
-
-    sendToGroup(group, {
-      type: 'group:message:new',
-      message: envelope,
-      sender: toPublicUser(me),
-    });
-
-    for (const memberId of group.memberIds) {
-      if (memberId === me.id) continue;
-      void sendPushToUser(memberId, {
-        title: `${group.name} • ${me.displayName}`,
-        body: 'Nouveau message de groupe chiffré',
-        discreetTitle: 'DISCRET',
-        discreetBody: 'Nouvelle activité de groupe chiffrée',
-        tag: `group-msg-${envelope.id}`,
-        data: {
-          url: `/?open=group&groupId=${encodeURIComponent(group.id)}`,
-          type: 'group',
-          groupId: group.id,
-          messageId: envelope.id,
-        },
-      });
-    }
-
-    res.status(201).json({ message: envelope });
-  });
-
-  app.delete('/api/groups/:groupId/messages/:messageId', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const group = state.groups.find((g) => g.id === req.params.groupId);
-    if (!group || !group.memberIds.includes(me.id)) {
-      res.status(404).json({ error: 'Groupe introuvable.' });
-      return;
-    }
-
-    const idx = state.groupMessages.findIndex(
-      (m) => m.id === req.params.messageId && m.groupId === group.id
-    );
-    if (idx === -1) {
-      res.status(404).json({ error: 'Message introuvable.' });
-      return;
-    }
-
-    const msg = state.groupMessages[idx];
-    if (msg.fromId !== me.id && group.creatorId !== me.id) {
-      res.status(403).json({ error: 'Accès refusé.' });
-      return;
-    }
-
-    state.groupMessages.splice(idx, 1);
-    schedulePersist();
-
-    sendToGroup(group, {
-      type: 'group:message:delete',
-      messageId: msg.id,
-      groupId: group.id,
-    });
-
-    res.json({ ok: true });
-  });
-
-  // ============================================================================
-  // Friends, Requests & Blocks API
-  // ============================================================================
-
-  app.get('/api/friends', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    res.json(buildFriendsSnapshot(me.id));
-  });
-
-  app.post('/api/friends/request', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const { targetUserId } = req.body ?? {};
-    if (typeof targetUserId !== 'string') {
-      res.status(400).json({ error: 'Identifiant utilisateur manquant.' });
-      return;
-    }
-    if (targetUserId === me.id) {
-      res.status(400).json({ error: 'Vous ne pouvez pas vous ajouter vous-même.' });
-      return;
-    }
-    const target = state.users.find((u) => u.id === targetUserId);
-    if (!target) {
-      res.status(404).json({ error: 'Utilisateur introuvable.' });
-      return;
-    }
-    if (isBlockedBetween(me.id, target.id)) {
-      res.status(403).json({ error: 'Impossible : un blocage est actif avec cet utilisateur.' });
-      return;
-    }
-    if (areFriends(me.id, target.id)) {
-      res.json({ status: 'already_friends', ...buildFriendsSnapshot(me.id) });
-      return;
-    }
-
-    // If the target already sent us a request, automatically accept it!
-    const reverseReq = state.friendRequests.find(
-      (r) => r.fromId === target.id && r.toId === me.id
-    );
-    if (reverseReq) {
-      addFriendship(me.id, target.id);
-      removeRequestsBetween(me.id, target.id);
-      schedulePersist();
-
-      sendToUser(target.id, { type: 'friend:accepted', byUser: toPublicUser(me) });
-      sendToUser(me.id, { type: 'friend:sync' });
-      sendToUser(target.id, { type: 'friend:sync' });
-
-      res.json({ status: 'accepted', ...buildFriendsSnapshot(me.id) });
-      return;
-    }
-
-    const existingReq = state.friendRequests.find(
-      (r) => r.fromId === me.id && r.toId === target.id
-    );
-    if (!existingReq) {
-      const request: StoredFriendRequest = {
-        id: crypto.randomUUID(),
-        fromId: me.id,
-        toId: target.id,
-        createdAt: Date.now(),
-      };
-      state.friendRequests.push(request);
-      schedulePersist();
-
-      sendToUser(target.id, {
-        type: 'friend:request',
-        fromUser: toPublicUser(me),
-        requestId: request.id,
-      });
-      sendToUser(me.id, { type: 'friend:sync' });
-      sendToUser(target.id, { type: 'friend:sync' });
-
-      void sendPushToUser(target.id, {
-        title: `Demande d'ami • ${me.displayName}`,
-        body: `${me.handle} souhaite rejoindre vos contacts DISCRET.`,
-        discreetTitle: 'DISCRET',
-        discreetBody: 'Nouvelle demande de contact reçue',
-        tag: `friend-req-${request.id}`,
-        data: {
-          url: '/?open=friends',
-          type: 'friend_request',
-          fromUserId: me.id,
-        },
-      });
-    }
-
-    res.status(201).json({ status: 'requested', ...buildFriendsSnapshot(me.id) });
-  });
-
-  app.post('/api/friends/accept', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const { requestId, fromUserId } = req.body ?? {};
-
-    const pending = state.friendRequests.find(
-      (r) =>
-        r.toId === me.id &&
-        ((typeof requestId === 'string' && r.id === requestId) ||
-          (typeof fromUserId === 'string' && r.fromId === fromUserId))
-    );
-
-    if (!pending) {
-      res.status(404).json({ error: 'Demande d’ami introuvable.' });
-      return;
-    }
-
-    if (isBlockedBetween(me.id, pending.fromId)) {
-      removeRequestsBetween(me.id, pending.fromId);
-      schedulePersist();
-      res.status(403).json({ error: 'Impossible : un blocage est actif.' });
-      return;
-    }
-
-    addFriendship(me.id, pending.fromId);
-    removeRequestsBetween(me.id, pending.fromId);
-    schedulePersist();
-
-    sendToUser(pending.fromId, { type: 'friend:accepted', byUser: toPublicUser(me) });
-    sendToUser(me.id, { type: 'friend:sync' });
-    sendToUser(pending.fromId, { type: 'friend:sync' });
-
-    void sendPushToUser(pending.fromId, {
-      title: `Demande acceptée • ${me.displayName}`,
-      body: `${me.displayName} fait maintenant partie de votre liste d'amis.`,
-      discreetTitle: 'DISCRET',
-      discreetBody: 'Une demande de contact a été acceptée',
-      tag: `friend-acc-${me.id}`,
-      data: {
-        url: `/?open=dm&peerId=${encodeURIComponent(me.id)}`,
-        type: 'friend_accepted',
-        peerId: me.id,
-      },
-    });
-
-    res.json({ ok: true, ...buildFriendsSnapshot(me.id) });
-  });
-
-  app.post('/api/friends/decline', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const { requestId, userId } = req.body ?? {};
-
-    const targetReq = state.friendRequests.find(
-      (r) =>
-        (r.toId === me.id || r.fromId === me.id) &&
-        ((typeof requestId === 'string' && r.id === requestId) ||
-          (typeof userId === 'string' &&
-            ((r.fromId === me.id && r.toId === userId) ||
-              (r.toId === me.id && r.fromId === userId))))
-    );
-
-    if (!targetReq) {
-      res.status(404).json({ error: 'Demande introuvable.' });
-      return;
-    }
-
-    const otherId = targetReq.fromId === me.id ? targetReq.toId : targetReq.fromId;
-    state.friendRequests = state.friendRequests.filter((r) => r.id !== targetReq.id);
-    schedulePersist();
-
-    sendToUser(me.id, { type: 'friend:sync' });
-    sendToUser(otherId, { type: 'friend:sync' });
-
-    res.json({ ok: true, ...buildFriendsSnapshot(me.id) });
-  });
-
-  app.delete('/api/friends/:userId', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const otherId = req.params.userId;
-    removeFriendship(me.id, otherId);
-    removeRequestsBetween(me.id, otherId);
-    schedulePersist();
-
-    sendToUser(me.id, { type: 'friend:sync' });
-    sendToUser(otherId, { type: 'friend:sync' });
-
-    res.json({ ok: true, ...buildFriendsSnapshot(me.id) });
-  });
-
-  app.post('/api/blocks', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const { targetUserId } = req.body ?? {};
-    if (typeof targetUserId !== 'string' || targetUserId === me.id) {
-      res.status(400).json({ error: 'Utilisateur cible invalide.' });
-      return;
-    }
-    const target = state.users.find((u) => u.id === targetUserId);
-    if (!target) {
-      res.status(404).json({ error: 'Utilisateur introuvable.' });
-      return;
-    }
-
-    if (!state.blocks[me.id]) state.blocks[me.id] = [];
-    if (!state.blocks[me.id].includes(targetUserId)) {
-      state.blocks[me.id].push(targetUserId);
-    }
-
-    removeFriendship(me.id, targetUserId);
-    removeRequestsBetween(me.id, targetUserId);
-    schedulePersist();
-
-    sendToUser(me.id, { type: 'block:update' });
-    sendToUser(targetUserId, { type: 'block:update' });
-    sendToUser(me.id, { type: 'friend:sync' });
-    sendToUser(targetUserId, { type: 'friend:sync' });
-
-    res.json({ ok: true, ...buildFriendsSnapshot(me.id) });
-  });
-
-  app.delete('/api/blocks/:targetUserId', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const targetUserId = req.params.targetUserId;
-    if (state.blocks[me.id]) {
-      state.blocks[me.id] = state.blocks[me.id].filter((id) => id !== targetUserId);
-    }
-    schedulePersist();
-
-    sendToUser(me.id, { type: 'block:update' });
-    sendToUser(targetUserId, { type: 'block:update' });
-    sendToUser(me.id, { type: 'friend:sync' });
-    sendToUser(targetUserId, { type: 'friend:sync' });
-
-    res.json({ ok: true, ...buildFriendsSnapshot(me.id) });
-  });
-
-  // ============================================================================
-  // Web Push Notifications API (VAPID)
+  // Web Push Notifications API (VAPID, Stateless Auth via Firebase ID Token)
   // ============================================================================
 
   app.get('/api/push/vapid-public-key', requireAuth, (_req, res) => {
@@ -1693,8 +407,8 @@ async function startServer() {
   });
 
   app.get('/api/push/status', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const subs = state.pushSubscriptions[me.id] ?? [];
+    const uid = (req as AuthedRequest).authUid;
+    const subs = pushState.pushSubscriptions[uid] ?? [];
     res.json({
       count: subs.length,
       subscriptions: subs.map((s) => ({
@@ -1706,28 +420,28 @@ async function startServer() {
   });
 
   app.post('/api/push/subscribe', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const uid = (req as AuthedRequest).authUid;
     const { subscription, discreetMode } = req.body ?? {};
     const endpoint = subscription?.endpoint;
     const p256dh = subscription?.keys?.p256dh;
-    const auth = subscription?.keys?.auth;
+    const authKey = subscription?.keys?.auth;
 
     if (
       typeof endpoint !== 'string' ||
       !endpoint.startsWith('https://') ||
       typeof p256dh !== 'string' ||
-      typeof auth !== 'string'
+      typeof authKey !== 'string'
     ) {
       res.status(400).json({ error: 'Abonnement Web Push invalide.' });
       return;
     }
 
-    if (!state.pushSubscriptions[me.id]) {
-      state.pushSubscriptions[me.id] = [];
+    if (!pushState.pushSubscriptions[uid]) {
+      pushState.pushSubscriptions[uid] = [];
     }
 
     const now = Date.now();
-    const existingIdx = state.pushSubscriptions[me.id].findIndex(
+    const existingIdx = pushState.pushSubscriptions[uid].findIndex(
       (s) => s.endpoint === endpoint
     );
 
@@ -1737,71 +451,75 @@ async function startServer() {
         typeof subscription.expirationTime === 'number'
           ? subscription.expirationTime
           : null,
-      keys: { p256dh, auth },
+      keys: { p256dh, auth: authKey },
       discreetMode:
         typeof discreetMode === 'boolean'
           ? discreetMode
           : existingIdx >= 0
-            ? Boolean(state.pushSubscriptions[me.id][existingIdx].discreetMode)
+            ? Boolean(pushState.pushSubscriptions[uid][existingIdx].discreetMode)
             : false,
       userAgent:
         typeof req.headers['user-agent'] === 'string'
           ? req.headers['user-agent'].slice(0, 180)
           : undefined,
       createdAt:
-        existingIdx >= 0 ? state.pushSubscriptions[me.id][existingIdx].createdAt : now,
+        existingIdx >= 0
+          ? pushState.pushSubscriptions[uid][existingIdx].createdAt
+          : now,
       updatedAt: now,
     };
 
     if (existingIdx >= 0) {
-      state.pushSubscriptions[me.id][existingIdx] = record;
+      pushState.pushSubscriptions[uid][existingIdx] = record;
     } else {
-      state.pushSubscriptions[me.id].push(record);
+      pushState.pushSubscriptions[uid].push(record);
     }
 
-    schedulePersist();
+    schedulePersistPushState();
     res.json({
       ok: true,
-      count: state.pushSubscriptions[me.id].length,
+      count: pushState.pushSubscriptions[uid].length,
       discreetMode: Boolean(record.discreetMode),
     });
   });
 
   app.patch('/api/push/preferences', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const uid = (req as AuthedRequest).authUid;
     const { endpoint, discreetMode } = req.body ?? {};
     if (typeof discreetMode !== 'boolean') {
       res.status(400).json({ error: 'Préférence invalide.' });
       return;
     }
 
-    const subs = state.pushSubscriptions[me.id] ?? [];
+    const subs = pushState.pushSubscriptions[uid] ?? [];
     for (const sub of subs) {
       if (!endpoint || sub.endpoint === endpoint) {
         sub.discreetMode = discreetMode;
         sub.updatedAt = Date.now();
       }
     }
-    schedulePersist();
+    schedulePersistPushState();
     res.json({ ok: true, discreetMode });
   });
 
   app.post('/api/push/unsubscribe', requireAuth, (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
+    const uid = (req as AuthedRequest).authUid;
     const { endpoint } = req.body ?? {};
-    const subs = state.pushSubscriptions[me.id] ?? [];
+    const subs = pushState.pushSubscriptions[uid] ?? [];
     if (typeof endpoint === 'string' && endpoint.length > 0) {
-      state.pushSubscriptions[me.id] = subs.filter((s) => s.endpoint !== endpoint);
+      pushState.pushSubscriptions[uid] = subs.filter(
+        (s) => s.endpoint !== endpoint
+      );
     } else {
-      state.pushSubscriptions[me.id] = [];
+      pushState.pushSubscriptions[uid] = [];
     }
-    schedulePersist();
-    res.json({ ok: true, count: state.pushSubscriptions[me.id].length });
+    schedulePersistPushState();
+    res.json({ ok: true, count: pushState.pushSubscriptions[uid].length });
   });
 
   app.post('/api/push/test', requireAuth, async (req, res) => {
-    const me = (req as express.Request & { currentUser: StoredUser }).currentUser;
-    const result = await sendPushToUser(me.id, {
+    const uid = (req as AuthedRequest).authUid;
+    const result = await sendPushToUser(uid, {
       title: 'DISCRET • Test Push Service Worker',
       body: 'Les notifications push en arrière-plan sont actives sur cet appareil.',
       discreetTitle: 'DISCRET',
@@ -1816,9 +534,64 @@ async function startServer() {
     res.json(result);
   });
 
+  app.post('/api/push/dispatch', requireAuth, async (req, res) => {
+    const senderUid = (req as AuthedRequest).authUid;
+    const {
+      targetUserIds,
+      title,
+      body,
+      discreetTitle,
+      discreetBody,
+      tag,
+      data,
+    } = req.body ?? {};
+
+    if (!Array.isArray(targetUserIds) || typeof title !== 'string' || typeof body !== 'string') {
+      res.status(400).json({ error: 'Paramètres de notification invalides.' });
+      return;
+    }
+
+    const targets = Array.from(
+      new Set(
+        targetUserIds.filter(
+          (id): id is string =>
+            typeof id === 'string' && id.length > 0 && id !== senderUid
+        )
+      )
+    ).slice(0, 25);
+
+    const results = await Promise.all(
+      targets.map((targetId) =>
+        sendPushToUser(targetId, {
+          title: title.slice(0, 120),
+          body: body.slice(0, 240),
+          discreetTitle:
+            typeof discreetTitle === 'string' ? discreetTitle.slice(0, 80) : 'DISCRET',
+          discreetBody:
+            typeof discreetBody === 'string'
+              ? discreetBody.slice(0, 160)
+              : 'Nouvelle activité chiffrée reçue.',
+          tag: typeof tag === 'string' ? tag.slice(0, 80) : `discret-${Date.now()}`,
+          data: data && typeof data === 'object' ? (data as Record<string, unknown>) : { url: '/' },
+        })
+      )
+    );
+
+    const summary = results.reduce(
+      (acc, cur) => ({
+        sent: acc.sent + cur.sent,
+        failed: acc.failed + cur.failed,
+        removed: acc.removed + cur.removed,
+      }),
+      { sent: 0, failed: 0, removed: 0 }
+    );
+
+    res.json({ ok: true, ...summary });
+  });
+
   const server = http.createServer(app);
 
-  // Real-time WebSocket Server attached to the HTTP server on port 3000
+  // Real-time WebSocket Signaling Server (WebRTC Calls & Typing Indicators)
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request, socket, head) => {
@@ -1828,15 +601,22 @@ async function startServer() {
     }
 
     const token = url.searchParams.get('token');
-    const session = token ? sessions.get(token) : undefined;
-    if (!session) {
+    if (!token) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
 
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, session.userId);
+    void verifyFirebaseIdToken(token).then((verified) => {
+      if (!verified) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, verified.uid);
+      });
     });
   });
 
@@ -1854,31 +634,38 @@ async function startServer() {
           type?: string;
           toId?: string;
           groupId?: string;
+          memberIds?: unknown;
           isTyping?: boolean;
           callId?: string;
           callType?: 'audio' | 'video';
+          caller?: unknown;
           sdp?: unknown;
           candidate?: unknown;
           reason?: string;
           audioMuted?: boolean;
           videoEnabled?: boolean;
         };
+
         if (data.type === 'typing:state') {
-          if (typeof data.groupId === 'string') {
-            const group = state.groups.find((g) => g.id === data.groupId);
-            if (group && group.memberIds.includes(userId)) {
-              sendToGroup(
-                group,
-                {
-                  type: 'typing:state',
-                  fromId: userId,
-                  groupId: group.id,
-                  isTyping: Boolean(data.isTyping),
-                },
-                userId
-              );
+          if (typeof data.groupId === 'string' && Array.isArray(data.memberIds)) {
+            const members = Array.from(
+              new Set(
+                data.memberIds.filter(
+                  (id): id is string =>
+                    typeof id === 'string' && id.length > 0 && id !== userId
+                )
+              )
+            ).slice(0, 30);
+
+            for (const memberId of members) {
+              sendToUser(memberId, {
+                type: 'typing:state',
+                fromId: userId,
+                groupId: data.groupId,
+                isTyping: Boolean(data.isTyping),
+              });
             }
-          } else if (typeof data.toId === 'string') {
+          } else if (typeof data.toId === 'string' && data.toId !== userId) {
             sendToUser(data.toId, {
               type: 'typing:state',
               fromId: userId,
@@ -1892,33 +679,19 @@ async function startServer() {
           data.sdp
         ) {
           if (data.toId === userId) return;
-          if (isBlockedBetween(userId, data.toId)) {
-            sendToUser(userId, {
-              type: 'call:decline',
-              callId: data.callId,
-              fromId: data.toId,
-              reason: 'blocked',
-            });
-            return;
-          }
-          const target = state.users.find((u) => u.id === data.toId);
-          const caller = state.users.find((u) => u.id === userId);
-          if (!target || !caller) {
-            sendToUser(userId, {
-              type: 'call:hangup',
-              callId: data.callId,
-              fromId: data.toId,
-              reason: 'unavailable',
-            });
-            return;
-          }
 
           const callType = data.callType === 'video' ? 'video' : 'audio';
+          const caller = sanitizeCallerProfile(data.caller, userId);
+          const callerName =
+            typeof caller.displayName === 'string'
+              ? caller.displayName
+              : 'Contact DISCRET';
+
           sendToUser(data.toId, {
             type: 'call:invite',
             callId: data.callId,
             fromId: userId,
-            caller: toPublicUser(caller),
+            caller,
             callType,
             sdp: data.sdp,
           });
@@ -1926,16 +699,16 @@ async function startServer() {
           void sendPushToUser(data.toId, {
             title:
               callType === 'video'
-                ? `Appel vidéo entrant • ${caller.displayName}`
-                : `Appel audio entrant • ${caller.displayName}`,
+                ? `Appel vidéo entrant • ${callerName}`
+                : `Appel audio entrant • ${callerName}`,
             body: 'Ouvrez DISCRET pour répondre en temps réel.',
             discreetTitle: 'DISCRET',
             discreetBody: 'Appel chiffré entrant',
             tag: `call-${data.callId}`,
             data: {
-              url: `/?open=dm&peerId=${encodeURIComponent(caller.id)}`,
+              url: `/?open=dm&peerId=${encodeURIComponent(userId)}`,
               type: 'dm',
-              peerId: caller.id,
+              peerId: userId,
             },
           });
         } else if (
@@ -1949,7 +722,6 @@ async function startServer() {
           typeof data.toId === 'string' &&
           typeof data.callId === 'string'
         ) {
-          if (isBlockedBetween(userId, data.toId)) return;
           sendToUser(data.toId, {
             type: data.type,
             callId: data.callId,
@@ -2015,7 +787,7 @@ async function startServer() {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`DISCRET encrypted relay running on http://0.0.0.0:${PORT}`);
+    console.log(`DISCRET signaling & push relay running on http://0.0.0.0:${PORT}`);
   });
 }
 

@@ -66,6 +66,54 @@ export async function deriveLookupId(rawKey: string): Promise<string> {
     .join('');
 }
 
+/**
+ * Derives deterministic, domain-separated zero-knowledge credentials
+ * solely from the user's secret DISCRET access key.
+ * Neither email nor password ever corresponds to a real mailbox or Google account.
+ */
+export async function deriveVaultAuthCredentials(
+  rawKey: string
+): Promise<{ vaultEmail: string; vaultPassword: string }> {
+  const normalized = normalizeAccessKey(rawKey);
+  const emailDigest = await window.crypto.subtle.digest(
+    'SHA-256',
+    utf8Encode(`discret:fb-id:v1:${normalized}`)
+  );
+  const emailHex = Array.from(new Uint8Array(emailDigest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 40);
+
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw',
+    utf8Encode(normalized),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+
+  const authBits = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: utf8Encode('discret:fb-auth-secret:v1'),
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256
+  );
+
+  const authB64Url = toBase64(authBits)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+  return {
+    vaultEmail: `${emailHex}@vault.discret.app`,
+    vaultPassword: `${authB64Url}!D1`,
+  };
+}
+
 async function deriveVaultAesKey(
   rawKey: string,
   salt: Uint8Array<ArrayBuffer>

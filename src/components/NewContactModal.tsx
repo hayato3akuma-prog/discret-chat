@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, Eye, Search, UserPlus, X } from 'lucide-react';
 import type { PublicUser } from '../types';
+import {
+  openConversationInFirestore,
+  searchPublicUsers,
+} from '../lib/firestoreStore';
 import { UserAvatar } from './UserAvatar';
 
 interface NewContactModalProps {
@@ -44,46 +48,31 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/users/search?q=${encodeURIComponent(trimmed)}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            signal: controller.signal,
-          }
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Recherche impossible.');
-        setResults(data.users ?? []);
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
+        const users = await searchPublicUsers(trimmed, currentUser.id);
+        if (!cancelled) setResults(users);
+      } catch {
+        if (!cancelled) {
           setError('Erreur lors de la recherche.');
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 200);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      controller.abort();
     };
-  }, [query, isOpen, token]);
+  }, [query, isOpen, token, currentUser.id]);
 
   async function handleStartChat(peer: PublicUser) {
     try {
-      await fetch('/api/conversations/open', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ peerId: peer.id }),
-      });
+      await openConversationInFirestore(currentUser.id, peer.id);
       onSelectPeer(peer);
       onClose();
     } catch {

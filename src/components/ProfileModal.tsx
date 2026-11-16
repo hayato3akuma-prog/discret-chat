@@ -7,6 +7,7 @@ import {
   X,
 } from 'lucide-react';
 import { BANNER_PRESETS } from '../lib/banners';
+import { updateMyProfileInFirestore } from '../lib/firestoreStore';
 import { compressBannerImage, compressSquareAvatar } from '../lib/imageUtils';
 import type {
   AccentToneKey,
@@ -131,27 +132,18 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch('/api/me', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          displayName: displayName.trim() || user.displayName,
-          bio: bio.trim(),
-          biography: biography.trim(),
-          avatarDataUrl,
-          avatarIcon,
-          accentTone,
-          bannerPreset,
-          bannerDataUrl,
-        }),
+      const updated = await updateMyProfileInFirestore(user.id, {
+        displayName: displayName.trim() || user.displayName,
+        bio: bio.trim(),
+        biography: biography.trim(),
+        avatarDataUrl,
+        avatarIcon,
+        accentTone,
+        bannerPreset,
+        bannerDataUrl,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Échec de mise à jour.');
 
-      onProfileUpdated(data.user as PublicUser);
+      onProfileUpdated(updated);
       setSavedNotice(true);
       setTimeout(() => {
         setSavedNotice(false);

@@ -1,101 +1,91 @@
 import { useCallback, useEffect, useState } from 'react';
+import { onAuthStateChanged, onIdTokenChanged, signOut, type User } from 'firebase/auth';
 import { AuthGate } from './components/AuthGate';
 import { ChatWorkspace } from './components/ChatWorkspace';
+import { LandingPage } from './components/LandingPage';
 import { OfflineBanner } from './components/OfflineBanner';
 import { importKeysFromJwks } from './lib/crypto';
+import { auth } from './lib/firebase';
+import { refreshPublicProfile } from './lib/firestoreStore';
+import {
+  clearEncryptedLocalSession,
+  readEncryptedLocalSession,
+  writeEncryptedLocalSession,
+} from './lib/secureStorage';
 import type { PublicUser, UnlockedSession } from './types';
 
-const SESSION_STORAGE_KEY = 'discret_session_v1';
-const LEGACY_SESSION_KEY = 'discret_tab_session_v1';
-
-interface PersistedSession {
-  token: string;
-  user: PublicUser;
-  ecdhPrivateJwk: JsonWebKey;
-  ecdsaPrivateJwk: JsonWebKey;
-}
-
-function readStoredSession(): string | null {
-  try {
-    const local = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    if (local) return local;
-
-    // Migrate any legacy sessionStorage session into localStorage
-    const legacy =
-      window.sessionStorage.getItem(LEGACY_SESSION_KEY) ||
-      window.sessionStorage.getItem('voile_tab_session_v1');
-    if (legacy) {
-      window.localStorage.setItem(SESSION_STORAGE_KEY, legacy);
-      window.sessionStorage.removeItem(LEGACY_SESSION_KEY);
-      window.sessionStorage.removeItem('voile_tab_session_v1');
-      return legacy;
-    }
-  } catch {
-    // Ignore storage errors
-  }
-  return null;
-}
-
-function writeStoredSession(payload: PersistedSession) {
-  try {
-    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // Ignore storage quota errors
-  }
-}
-
-function clearStoredSession() {
-  try {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-    window.sessionStorage.removeItem(LEGACY_SESSION_KEY);
-    window.sessionStorage.removeItem('voile_tab_session_v1');
-  } catch {
-    // Ignore storage errors
-  }
-}
-
 export default function App() {
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [session, setSession] = useState<UnlockedSession | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const [unauthView, setUnauthView] = useState<'landing' | 'auth'>(() => {
+    const h = window.location.hash;
+    return h === '#connexion' || h === '#creer' ? 'auth' : 'landing';
+  });
+  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'create'>(() =>
+    window.location.hash === '#creer' ? 'create' : 'login'
+  );
+  const [showPresentationWhenAuthed, setShowPresentationWhenAuthed] = useState(
+    () => window.location.hash === '#presentation'
+  );
 
   useEffect(() => {
     let active = true;
-    async function restoreSession() {
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (!active) return;
+      setFirebaseUser(fbUser);
+
+      if (!fbUser) {
+        setSession(null);
+        setAuthReady(true);
+        setRestoring(false);
+        return;
+      }
+
       try {
-        const raw = readStoredSession();
-        if (!raw) return;
-        const parsed = JSON.parse(raw) as PersistedSession;
-        const keys = await importKeysFromJwks(
-          parsed.ecdhPrivateJwk,
-          parsed.ecdsaPrivateJwk
-        );
+        const parsed = await readEncryptedLocalSession();
+        if (!parsed?.user?.id || parsed.user.id !== fbUser.uid) {
+          if (active) {
+            setAuthReady(true);
+            setRestoring(false);
+          }
+          return;
+        }
+
+        const [keys, freshToken] = await Promise.all([
+          importKeysFromJwks(parsed.ecdhPrivateJwk, parsed.ecdsaPrivateJwk),
+          fbUser.getIdToken(),
+        ]);
 
         let currentUser = parsed.user;
         try {
-          const meRes = await fetch('/api/me', {
-            headers: { Authorization: `Bearer ${parsed.token}` },
-          });
-          if (meRes.status === 401) {
-            clearStoredSession();
-            return;
-          }
-          if (meRes.ok) {
-            const meData = (await meRes.json()) as { user: PublicUser };
-            currentUser = meData.user;
-            writeStoredSession({
-              token: parsed.token,
+          const remoteProfile = await refreshPublicProfile(fbUser.uid);
+          if (remoteProfile) {
+            currentUser = remoteProfile;
+            await writeEncryptedLocalSession({
+              token: freshToken,
               user: currentUser,
               ecdhPrivateJwk: parsed.ecdhPrivateJwk,
               ecdsaPrivateJwk: parsed.ecdsaPrivateJwk,
             });
+          } else {
+            await clearEncryptedLocalSession();
+            if (active) {
+              setSession(null);
+              setAuthReady(true);
+              setRestoring(false);
+            }
+            return;
           }
         } catch {
-          // Offline or transient network error: keep local session unlocked
+          // Offline or transient Firestore error: keep local unlocked session
         }
 
         if (active) {
           setSession({
-            token: parsed.token,
+            token: freshToken,
             user: currentUser,
             ecdhPrivateKey: keys.ecdhPrivateKey,
             ecdsaPrivateKey: keys.ecdsaPrivateKey,
@@ -104,25 +94,52 @@ export default function App() {
           });
         }
       } catch {
-        clearStoredSession();
+        await clearEncryptedLocalSession();
       } finally {
-        if (active) setRestoring(false);
+        if (active) {
+          setAuthReady(true);
+          setRestoring(false);
+        }
       }
-    }
+    });
 
-    restoreSession();
+    const unsubToken = onIdTokenChanged(auth, async (fbUser) => {
+      if (!fbUser || !active) return;
+      try {
+        const freshToken = await fbUser.getIdToken();
+        setSession((prev) => {
+          if (!prev || prev.user.id !== fbUser.uid || prev.token === freshToken) {
+            return prev;
+          }
+          const next = { ...prev, token: freshToken };
+          void writeEncryptedLocalSession({
+            token: next.token,
+            user: next.user,
+            ecdhPrivateJwk: next.ecdhPrivateJwk,
+            ecdsaPrivateJwk: next.ecdsaPrivateJwk,
+          });
+          return next;
+        });
+      } catch {
+        // Ignore token refresh errors while offline
+      }
+    });
+
     return () => {
       active = false;
+      unsubAuth();
+      unsubToken();
     };
   }, []);
 
   const handleAuthenticated = useCallback((unlocked: UnlockedSession) => {
-    writeStoredSession({
+    void writeEncryptedLocalSession({
       token: unlocked.token,
       user: unlocked.user,
       ecdhPrivateJwk: unlocked.ecdhPrivateJwk,
       ecdsaPrivateJwk: unlocked.ecdsaPrivateJwk,
     });
+    setShowPresentationWhenAuthed(false);
     setSession(unlocked);
   }, []);
 
@@ -130,7 +147,7 @@ export default function App() {
     setSession((prev) => {
       if (!prev) return null;
       const next = { ...prev, user: updatedUser };
-      writeStoredSession({
+      void writeEncryptedLocalSession({
         token: next.token,
         user: next.user,
         ecdhPrivateJwk: next.ecdhPrivateJwk,
@@ -141,18 +158,26 @@ export default function App() {
   }, []);
 
   const handleLockSession = useCallback(async () => {
-    const token = session?.token;
-    clearStoredSession();
+    await clearEncryptedLocalSession();
     setSession(null);
-    if (token) {
-      fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
-    }
-  }, [session?.token]);
+    setShowPresentationWhenAuthed(false);
+    setAuthInitialTab('login');
+    setUnauthView('auth');
+    await signOut(auth).catch(() => {});
+  }, []);
 
-  if (restoring) {
+  const handleOpenAuth = useCallback((mode: 'login' | 'create') => {
+    setAuthInitialTab(mode);
+    setUnauthView('auth');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
+
+  const handleShowPresentation = useCallback(() => {
+    setUnauthView('landing');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
+
+  if (!authReady || restoring) {
     return (
       <div className="h-dvh w-full bg-[#050507] flex items-center justify-center text-xs text-zinc-500">
         Initialisation du coffre chiffré DISCRET...
@@ -160,15 +185,42 @@ export default function App() {
     );
   }
 
+  const isAuthenticated = Boolean(firebaseUser && session);
+
   return (
     <>
-      {!session ? (
-        <AuthGate onAuthenticated={handleAuthenticated} />
+      {!isAuthenticated ? (
+        unauthView === 'landing' ? (
+          <LandingPage
+            isAuthenticated={false}
+            onOpenAuth={handleOpenAuth}
+          />
+        ) : (
+          <AuthGate
+            key={authInitialTab}
+            initialTab={authInitialTab}
+            onAuthenticated={handleAuthenticated}
+            onShowPresentation={handleShowPresentation}
+          />
+        )
+      ) : showPresentationWhenAuthed ? (
+        <LandingPage
+          isAuthenticated
+          onOpenAuth={handleOpenAuth}
+          onReturnToWorkspace={() => {
+            setShowPresentationWhenAuthed(false);
+            window.scrollTo({ top: 0, behavior: 'auto' });
+          }}
+        />
       ) : (
         <ChatWorkspace
-          session={session}
+          session={session!}
           onUpdateUser={handleUpdateUser}
           onLockSession={handleLockSession}
+          onOpenPresentation={() => {
+            setShowPresentationWhenAuthed(true);
+            window.scrollTo({ top: 0, behavior: 'auto' });
+          }}
         />
       )}
       <OfflineBanner />

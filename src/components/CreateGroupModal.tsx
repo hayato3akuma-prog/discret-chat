@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { BANNER_PRESETS } from '../lib/banners';
 import { generateGroupKeyBytes, wrapGroupKeyForMember } from '../lib/crypto';
+import { createGroupInFirestore, searchPublicUsers } from '../lib/firestoreStore';
 import { compressBannerImage, compressSquareAvatar } from '../lib/imageUtils';
 import type {
   AccentToneKey,
@@ -81,34 +82,24 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await fetch(
-          `/api/users/search?q=${encodeURIComponent(trimmed)}`,
-          {
-            headers: { Authorization: `Bearer ${session.token}` },
-            signal: controller.signal,
-          }
-        );
-        const data = await res.json();
-        if (res.ok) {
-          const filtered = (data.users as PublicUser[]).filter(
-            (u) => u.id !== session.user.id
-          );
-          setResults(filtered);
+        const users = await searchPublicUsers(trimmed, session.user.id);
+        if (!cancelled) {
+          setResults(users.filter((u) => u.id !== session.user.id));
         }
       } catch {
-        // Ignore abort
+        // Ignore
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
     }, 200);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      controller.abort();
     };
   }, [query, isOpen, session.token, session.user.id]);
 
@@ -176,30 +167,19 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
         })
       );
 
-      const res = await fetch('/api/groups', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.token}`,
-        },
-        body: JSON.stringify({
-          name: trimmedName,
-          description: description.trim(),
-          avatarDataUrl,
-          bannerPreset,
-          bannerDataUrl,
-          accentTone,
-          memberIds: allMembers.map((m) => m.id),
-          keyEnvelopes,
-        }),
+      const createdGroup = await createGroupInFirestore({
+        creatorId: session.user.id,
+        name: trimmedName,
+        description: description.trim(),
+        avatarDataUrl,
+        bannerPreset,
+        bannerDataUrl,
+        accentTone,
+        memberIds: allMembers.map((m) => m.id),
+        keyEnvelopes,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Impossible de créer le groupe.');
-      }
-
-      onGroupCreated(data.group as GroupInfo);
+      onGroupCreated(createdGroup);
       onClose();
     } catch (err) {
       setError(

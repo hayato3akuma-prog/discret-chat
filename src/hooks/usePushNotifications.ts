@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { getFreshFirebaseIdToken } from '../lib/firebase';
 import {
   ensureServiceWorkerRegistration,
   getExistingPushSubscription,
@@ -64,11 +65,12 @@ export function usePushNotifications(token: string | null) {
           event.data.subscription &&
           token
         ) {
+          const activeToken = (await getFreshFirebaseIdToken()) || token;
           await fetch('/api/push/subscribe', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
+              Authorization: `Bearer ${activeToken}`,
             },
             body: JSON.stringify({
               subscription: event.data.subscription,

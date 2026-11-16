@@ -17,6 +17,7 @@ import type {
   PublicUser,
   RelationshipState,
 } from '../types';
+import { searchPublicUsers } from '../lib/firestoreStore';
 import { UserAvatar } from './UserAvatar';
 
 interface FriendsModalProps {
@@ -81,37 +82,27 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setSearching(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/users/search?q=${encodeURIComponent(trimmed)}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            signal: controller.signal,
-          }
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Recherche impossible.');
-        setSearchResults(
-          ((data.users as PublicUser[]) ?? []).filter(
-            (u) => u.id !== currentUser.id
-          )
-        );
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
+        const users = await searchPublicUsers(trimmed, currentUser.id);
+        if (!cancelled) {
+          setSearchResults(users.filter((u) => u.id !== currentUser.id));
+        }
+      } catch {
+        if (!cancelled) {
           setError('Erreur lors de la recherche.');
         }
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
     }, 200);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      controller.abort();
     };
   }, [query, tab, isOpen, token, currentUser.id]);
 

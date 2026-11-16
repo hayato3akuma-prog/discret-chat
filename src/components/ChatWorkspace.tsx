@@ -17,14 +17,19 @@ import {
   ShieldCheck,
   ShieldOff,
   SlidersHorizontal,
+  Square,
   Trash2,
   UserCheck,
   UserPlus,
   Users,
   Video,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { type CallSignalPayload, useWebRTCCall } from '../hooks/useWebRTCCall';
+import { getFreshFirebaseIdToken } from '../lib/firebase';
 import { showLocalServiceWorkerNotification } from '../lib/pushNotifications';
 import {
   decryptAndVerifyGroupMessage,
@@ -35,8 +40,28 @@ import {
   importGroupAesKey,
   unwrapGroupKeyBytes,
 } from '../lib/crypto';
+import {
+  acceptFriendRequestInFirestore,
+  blockUserInFirestore,
+  declineFriendRequestInFirestore,
+  deleteDirectMessageInFirestore,
+  deleteGroupMessageInFirestore,
+  dispatchPushNotification,
+  fetchPublicProfile,
+  markConversationReadInFirestore,
+  openConversationInFirestore,
+  removeFriendInFirestore,
+  sendDirectMessageInFirestore,
+  sendFriendRequestInFirestore,
+  sendGroupMessageInFirestore,
+  subscribeConversations,
+  subscribeDirectMessages,
+  subscribeFriendsSnapshot,
+  subscribeGroupMessages,
+  subscribeGroups,
+  unblockUserInFirestore,
+} from '../lib/firestoreStore';
 import type {
-  ConversationSummary,
   DecryptedMessage,
   EncryptedMessageEnvelope,
   EphemeralDuration,
@@ -66,6 +91,7 @@ interface ChatWorkspaceProps {
   session: UnlockedSession;
   onUpdateUser: (user: PublicUser) => void;
   onLockSession: () => void;
+  onOpenPresentation?: () => void;
 }
 
 interface SidebarConversation {
@@ -112,6 +138,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   session,
   onUpdateUser,
   onLockSession,
+  onOpenPresentation,
 }) => {
   const [conversations, setConversations] = useState<SidebarConversation[]>([]);
   const [groups, setGroups] = useState<SidebarGroup[]>([]);
@@ -184,6 +211,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const groupKeysCacheRef = useRef<Map<string, CryptoKey>>(new Map());
   const typingTimeoutRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const knownMsgIdsRef = useRef<Set<string>>(new Set());
+  const animatedNewMsgIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedInitialBatchRef = useRef<boolean>(false);
 
   useEffect(() => {
     activeTargetRef.current = activeTarget;
@@ -197,34 +227,31 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     conversationsRef.current = conversations;
   }, [conversations]);
 
-  const sendCallSignal = useCallback((payload: Record<string, unknown>) => {
-    if (wsRef.current?.readyState !== WebSocket.OPEN) return false;
-    wsRef.current.send(JSON.stringify(payload));
-    return true;
-  }, []);
-
-  const resolveCallUser = useCallback(
-    async (userId: string): Promise<PublicUser | null> => {
-      const fromConv = conversationsRef.current.find(
-        (c) => c.peer.id === userId
-      )?.peer;
-      if (fromConv) return fromConv;
-
-      try {
-        const res = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
-          headers: { Authorization: `Bearer ${session.token}` },
-        });
-        if (res.ok) {
-          const data = (await res.json()) as { user?: PublicUser };
-          return data.user ?? null;
-        }
-      } catch {
-        // Ignore
-      }
-      return null;
+  const sendCallSignal = useCallback(
+    (payload: Record<string, unknown>) => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return false;
+      const enriched =
+        payload.type === 'call:invite'
+          ? { ...payload, caller: session.user }
+          : payload;
+      wsRef.current.send(JSON.stringify(enriched));
+      return true;
     },
-    [session.token]
+    [session.user]
   );
+
+  const resolveCallUser = useCallback(async (userId: string): Promise<PublicUser | null> => {
+    const fromConv = conversationsRef.current.find(
+      (c) => c.peer.id === userId
+    )?.peer;
+    if (fromConv) return fromConv;
+
+    try {
+      return await fetchPublicProfile(userId);
+    } catch {
+      return null;
+    }
+  }, []);
 
   const call = useWebRTCCall({
     currentUserId: session.user.id,
@@ -236,6 +263,30 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   useEffect(() => {
     handleCallSignalRef.current = call.handleCallSignal;
   }, [call.handleCallSignal]);
+
+  const tts = useTextToSpeech();
+  const ttsSpeakRef = useRef(tts.speakMessage);
+  const ttsStopRef = useRef(tts.stop);
+  const ttsAutoReadRef = useRef(tts.autoRead);
+  const callPhaseRef = useRef(call.phase);
+
+  useEffect(() => {
+    ttsSpeakRef.current = tts.speakMessage;
+    ttsStopRef.current = tts.stop;
+    ttsAutoReadRef.current = tts.autoRead;
+  }, [tts.speakMessage, tts.stop, tts.autoRead]);
+
+  useEffect(() => {
+    callPhaseRef.current = call.phase;
+    if (call.phase !== 'idle') {
+      ttsStopRef.current();
+    }
+  }, [call.phase]);
+
+  const handleLockSession = useCallback(() => {
+    tts.stop();
+    onLockSession();
+  }, [tts, onLockSession]);
 
   function handleChangeGlassIntensity(val: GlassIntensity) {
     setGlassIntensity(val);
@@ -273,13 +324,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       )?.ecdhPublicJwk;
 
       if (!wrapperPub) {
-        const res = await fetch(
-          `/api/users/${encodeURIComponent(myEnvelope.wrappedByUserId)}`,
-          { headers: { Authorization: `Bearer ${session.token}` } }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          wrapperPub = (data.user as PublicUser).ecdhPublicJwk;
+        const wrapperProfile = await fetchPublicProfile(myEnvelope.wrappedByUserId);
+        if (wrapperProfile) {
+          wrapperPub = wrapperProfile.ecdhPublicJwk;
         }
       }
       if (!wrapperPub) return null;
@@ -406,29 +453,26 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     [getGroupAesKey]
   );
 
-  const loadAllThreads = useCallback(async () => {
-    try {
-      const [convRes, grpRes] = await Promise.all([
-        fetch('/api/conversations', {
-          headers: { Authorization: `Bearer ${session.token}` },
-        }),
-        fetch('/api/groups', {
-          headers: { Authorization: `Bearer ${session.token}` },
-        }),
-      ]);
-
-      if (convRes.status === 401 || grpRes.status === 401) {
-        onLockSession();
-        return;
+  const markConversationRead = useCallback(
+    async (peerId: string) => {
+      if (peerId === session.user.id) return;
+      try {
+        await markConversationReadInFirestore(session.user.id, peerId);
+        setConversations((prev) =>
+          prev.map((c) => (c.peer.id === peerId ? { ...c, unreadCount: 0 } : c))
+        );
+      } catch {
+        // Ignore
       }
+    },
+    [session.user.id]
+  );
 
-      const convData = (await convRes.json()) as {
-        conversations: ConversationSummary[];
-      };
-      const grpData = (await grpRes.json()) as { groups: GroupInfo[] };
-
-      const convItems = await Promise.all(
-        (convData.conversations ?? []).map(async (conv) => {
+  // Real-time Firestore subscriptions for conversations, groups & friends
+  useEffect(() => {
+    const unsubConvs = subscribeConversations(session.user.id, (summaries) => {
+      void Promise.all(
+        summaries.map(async (conv) => {
           let preview: string | null = null;
           if (conv.lastMessage) {
             const dec = await decryptEnvelope(conv.lastMessage, conv.peer);
@@ -441,10 +485,18 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             unreadCount: conv.unreadCount,
           };
         })
-      );
+      ).then((items) => {
+        setConversations(items);
+        setLoadingConversations(false);
+        if (!activeTargetRef.current && items.length > 0) {
+          setActiveTarget({ kind: 'dm', peer: items[0].peer });
+        }
+      });
+    });
 
-      const groupItems = await Promise.all(
-        (grpData.groups ?? []).map(async (g) => {
+    const unsubGroups = subscribeGroups(session.user.id, (groupList) => {
+      void Promise.all(
+        groupList.map(async (g) => {
           let preview: string | null = null;
           if (g.lastMessage) {
             const dec = await decryptGroupEnvelope(g.lastMessage, g);
@@ -462,126 +514,33 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             lastTimestamp: g.lastMessage?.timestamp ?? g.createdAt,
           };
         })
-      );
-
-      setConversations(convItems);
-      setGroups(groupItems);
-
-      if (!activeTargetRef.current && convItems.length > 0) {
-        setActiveTarget({ kind: 'dm', peer: convItems[0].peer });
-      }
-    } catch {
-      // Keep current list on transient error
-    } finally {
-      setLoadingConversations(false);
-    }
-  }, [session.token, session.user.id, decryptEnvelope, decryptGroupEnvelope, onLockSession]);
-
-  const loadFriends = useCallback(async () => {
-    try {
-      const res = await fetch('/api/friends', {
-        headers: { Authorization: `Bearer ${session.token}` },
-      });
-      if (res.status === 401) {
-        onLockSession();
-        return;
-      }
-      if (res.ok) {
-        const data = (await res.json()) as FriendsSnapshot;
-        setFriendsSnapshot({
-          friends: data.friends ?? [],
-          incoming: data.incoming ?? [],
-          outgoing: data.outgoing ?? [],
-          blocked: data.blocked ?? [],
-          blockedByIds: data.blockedByIds ?? [],
-        });
-      }
-    } catch {
-      // Ignore transient network errors
-    }
-  }, [session.token, onLockSession]);
-
-  const markConversationRead = useCallback(
-    async (peerId: string) => {
-      if (peerId === session.user.id) return;
-      try {
-        await fetch('/api/messages/read', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.token}`,
-          },
-          body: JSON.stringify({ peerId }),
-        });
-        setConversations((prev) =>
-          prev.map((c) => (c.peer.id === peerId ? { ...c, unreadCount: 0 } : c))
-        );
-      } catch {
-        // Ignore
-      }
-    },
-    [session.token, session.user.id]
-  );
-
-  const loadMessagesForTarget = useCallback(
-    async (target: ActiveTarget) => {
-      setLoadingMessages(true);
-      try {
-        if (target.kind === 'dm') {
-          const res = await fetch(
-            `/api/messages/${encodeURIComponent(target.peer.id)}`,
-            { headers: { Authorization: `Bearer ${session.token}` } }
-          );
-          if (res.status === 401) {
-            onLockSession();
-            return;
+      ).then((items) => {
+        setGroups(items);
+        const cur = activeTargetRef.current;
+        if (cur?.kind === 'group') {
+          const updatedGroup = items.find((i) => i.group.id === cur.group.id)?.group;
+          if (updatedGroup) {
+            setActiveTarget({ kind: 'group', group: updatedGroup });
+          } else {
+            groupKeysCacheRef.current.delete(cur.group.id);
+            setActiveTarget(null);
+            setIsGroupInfoOpen(false);
+            setMobileShowChat(false);
           }
-          const data = (await res.json()) as {
-            messages: EncryptedMessageEnvelope[];
-          };
-          const decrypted = await Promise.all(
-            (data.messages ?? []).map((env) => decryptEnvelope(env, target.peer))
-          );
-          setMessages(decrypted);
-          await markConversationRead(target.peer.id);
-        } else {
-          const res = await fetch(
-            `/api/groups/${encodeURIComponent(target.group.id)}/messages`,
-            { headers: { Authorization: `Bearer ${session.token}` } }
-          );
-          if (res.status === 401) {
-            onLockSession();
-            return;
-          }
-          const data = (await res.json()) as {
-            messages: GroupMessageEnvelope[];
-          };
-          const decrypted = await Promise.all(
-            (data.messages ?? []).map((env) =>
-              decryptGroupEnvelope(env, target.group)
-            )
-          );
-          setMessages(decrypted);
         }
-      } catch {
-        setMessages([]);
-      } finally {
-        setLoadingMessages(false);
-      }
-    },
-    [
-      session.token,
-      decryptEnvelope,
-      decryptGroupEnvelope,
-      markConversationRead,
-      onLockSession,
-    ]
-  );
+      });
+    });
 
-  useEffect(() => {
-    loadAllThreads();
-    loadFriends();
-  }, [loadAllThreads, loadFriends]);
+    const unsubFriends = subscribeFriendsSnapshot(session.user.id, (snapshot) => {
+      setFriendsSnapshot(snapshot);
+    });
+
+    return () => {
+      unsubConvs();
+      unsubGroups();
+      unsubFriends();
+    };
+  }, [session.user.id, decryptEnvelope, decryptGroupEnvelope]);
 
   const activeTargetId =
     activeTarget?.kind === 'dm'
@@ -590,52 +549,146 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         ? `group:${activeTarget.group.id}`
         : null;
 
+  // Real-time Firestore subscription for active thread messages
   useEffect(() => {
-    if (!activeTargetRef.current) return;
-    loadMessagesForTarget(activeTargetRef.current);
-  }, [activeTargetId, loadMessagesForTarget]);
+    knownMsgIdsRef.current = new Set();
+    animatedNewMsgIdsRef.current = new Set();
+    hasLoadedInitialBatchRef.current = false;
+    ttsStopRef.current();
+
+    const target = activeTargetRef.current;
+    if (!target) {
+      setMessages([]);
+      setLoadingMessages(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingMessages(true);
+
+    const recordMessageBatch = (
+      list: DecryptedMessage[],
+      resolveSpeaker?: (msg: DecryptedMessage) => string | undefined
+    ) => {
+      if (!hasLoadedInitialBatchRef.current) {
+        hasLoadedInitialBatchRef.current = true;
+        for (const m of list) {
+          knownMsgIdsRef.current.add(m.id);
+        }
+        return;
+      }
+
+      const newlyArrived: DecryptedMessage[] = [];
+      for (const m of list) {
+        if (!knownMsgIdsRef.current.has(m.id)) {
+          knownMsgIdsRef.current.add(m.id);
+          animatedNewMsgIdsRef.current.add(m.id);
+          newlyArrived.push(m);
+        }
+      }
+
+      if (
+        newlyArrived.length > 0 &&
+        ttsAutoReadRef.current &&
+        callPhaseRef.current === 'idle'
+      ) {
+        const incomingSpeakable = newlyArrived.filter(
+          (m) =>
+            m.fromId !== session.user.id &&
+            !m.decryptionError &&
+            m.text.trim().length > 0
+        );
+        const latest = incomingSpeakable[incomingSpeakable.length - 1];
+        if (latest) {
+          ttsSpeakRef.current(latest.id, latest.text, resolveSpeaker?.(latest));
+        }
+      }
+    };
+
+    if (target.kind === 'dm') {
+      const peer = target.peer;
+      const unsub = subscribeDirectMessages(session.user.id, peer.id, (envs) => {
+        void Promise.all(envs.map((env) => decryptEnvelope(env, peer))).then(
+          (decrypted) => {
+            if (cancelled) return;
+            recordMessageBatch(decrypted, () => peer.displayName);
+            setMessages(decrypted);
+            setLoadingMessages(false);
+            const hasUnread = decrypted.some(
+              (m) =>
+                m.toId === session.user.id &&
+                m.fromId !== session.user.id &&
+                m.readAt === null
+            );
+            if (hasUnread) {
+              void markConversationRead(peer.id);
+            }
+          }
+        );
+      });
+      return () => {
+        cancelled = true;
+        ttsStopRef.current();
+        unsub();
+      };
+    }
+
+    const group = target.group;
+    const unsub = subscribeGroupMessages(group.id, (envs) => {
+      const latestGroup =
+        groupsRef.current.find((g) => g.group.id === group.id)?.group ?? group;
+      void Promise.all(envs.map((env) => decryptGroupEnvelope(env, latestGroup))).then(
+        (decrypted) => {
+          if (cancelled) return;
+          recordMessageBatch(decrypted, (m) => m.sender?.displayName);
+          setMessages(decrypted);
+          setLoadingMessages(false);
+        }
+      );
+    });
+    return () => {
+      cancelled = true;
+      ttsStopRef.current();
+      unsub();
+    };
+  }, [
+    activeTargetId,
+    session.user.id,
+    decryptEnvelope,
+    decryptGroupEnvelope,
+    markConversationRead,
+  ]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, activeTargetId]);
 
-  // Real-time WebSocket connection with automatic reconnect
+  // Real-time WebSocket connection for WebRTC call signaling & live typing indicators
   useEffect(() => {
     let closedByUser = false;
     let reconnectTimer: number | null = null;
     let attempt = 0;
 
-    function connect() {
+    async function connect() {
+      const freshToken = (await getFreshFirebaseIdToken()) || session.token;
+      if (closedByUser) return;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(
-        session.token
+        freshToken
       )}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         attempt = 0;
-        loadAllThreads();
-        loadFriends();
-        if (activeTargetRef.current) {
-          loadMessagesForTarget(activeTargetRef.current);
-        }
       };
 
       ws.onmessage = async (event) => {
         try {
           const payload = JSON.parse(String(event.data)) as {
             type: string;
-            message?: EncryptedMessageEnvelope | GroupMessageEnvelope;
-            sender?: PublicUser;
-            user?: PublicUser;
-            group?: GroupInfo;
             groupId?: string;
             fromId?: string;
             isTyping?: boolean;
-            messageIds?: string[];
-            readAt?: number;
-            messageId?: string;
             callId?: string;
             caller?: PublicUser;
             callType?: 'audio' | 'video';
@@ -651,117 +704,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             return;
           }
 
-          if (
-            payload.type === 'friend:request' ||
-            payload.type === 'friend:accepted' ||
-            payload.type === 'friend:sync' ||
-            payload.type === 'block:update'
-          ) {
-            loadFriends();
-            if (
-              (payload.type === 'friend:request' || payload.type === 'friend:accepted') &&
-              document.visibilityState !== 'visible' &&
-              !pushStateRef.current.isSubscribed &&
-              pushStateRef.current.permission === 'granted'
-            ) {
-              const discreet = pushStateRef.current.discreetMode;
-              void showLocalServiceWorkerNotification({
-                title: discreet
-                  ? 'DISCRET'
-                  : payload.type === 'friend:request'
-                    ? "Nouvelle demande d'ami"
-                    : "Demande d'ami acceptée",
-                body: discreet
-                  ? 'Nouvelle activité sur votre compte'
-                  : 'Ouvrez DISCRET pour consulter vos contacts.',
-                tag: `friend-${payload.type}-${Date.now()}`,
-                data: { url: '/?open=friends', type: 'friend_request' },
-              });
-            }
-          } else if (payload.type === 'profile:update' && payload.user) {
-            const updated = payload.user;
-            if (updated.id === session.user.id) {
-              onUpdateUser(updated);
-            }
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.peer.id === updated.id ? { ...c, peer: updated } : c
-              )
-            );
-            setGroups((prev) =>
-              prev.map((sg) => ({
-                ...sg,
-                group: {
-                  ...sg.group,
-                  members: sg.group.members.map((m) =>
-                    m.id === updated.id ? updated : m
-                  ),
-                },
-              }))
-            );
-            setFriendsSnapshot((prev) => ({
-              ...prev,
-              friends: prev.friends.map((f) => (f.id === updated.id ? updated : f)),
-              blocked: prev.blocked.map((b) => (b.id === updated.id ? updated : b)),
-              incoming: prev.incoming.map((r) =>
-                r.fromUser.id === updated.id ? { ...r, fromUser: updated } : r
-              ),
-              outgoing: prev.outgoing.map((r) =>
-                r.toUser.id === updated.id ? { ...r, toUser: updated } : r
-              ),
-            }));
-            setViewedProfileUser((prev) =>
-              prev && prev.id === updated.id ? updated : prev
-            );
-            const cur = activeTargetRef.current;
-            if (cur?.kind === 'dm' && cur.peer.id === updated.id) {
-              setActiveTarget({ kind: 'dm', peer: updated });
-            } else if (cur?.kind === 'group') {
-              setActiveTarget({
-                kind: 'group',
-                group: {
-                  ...cur.group,
-                  members: cur.group.members.map((m) =>
-                    m.id === updated.id ? updated : m
-                  ),
-                },
-              });
-            }
-          } else if (payload.type === 'group:new' && payload.group) {
-            const g = payload.group;
-            setGroups((prev) => {
-              if (prev.some((item) => item.group.id === g.id)) return prev;
-              return [
-                {
-                  group: g,
-                  lastMessagePreview: null,
-                  lastTimestamp: g.createdAt,
-                },
-                ...prev,
-              ];
-            });
-          } else if (payload.type === 'group:update' && payload.group) {
-            const g = payload.group;
-            setGroups((prev) =>
-              prev.map((item) =>
-                item.group.id === g.id ? { ...item, group: g } : item
-              )
-            );
-            const cur = activeTargetRef.current;
-            if (cur?.kind === 'group' && cur.group.id === g.id) {
-              setActiveTarget({ kind: 'group', group: g });
-            }
-          } else if (payload.type === 'group:delete' && payload.groupId) {
-            const deletedId = payload.groupId;
-            groupKeysCacheRef.current.delete(deletedId);
-            setGroups((prev) => prev.filter((item) => item.group.id !== deletedId));
-            const cur = activeTargetRef.current;
-            if (cur?.kind === 'group' && cur.group.id === deletedId) {
-              setActiveTarget(null);
-              setIsGroupInfoOpen(false);
-              setMobileShowChat(false);
-            }
-          } else if (payload.type === 'typing:state' && payload.fromId) {
+          if (payload.type === 'typing:state' && payload.fromId) {
             if (payload.groupId) {
               const grp = groupsRef.current.find(
                 (item) => item.group.id === payload.groupId
@@ -779,185 +722,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 [payload.fromId!]: Boolean(payload.isTyping),
               }));
             }
-          } else if (payload.type === 'message:read' && payload.messageIds) {
-            const readIds = new Set(payload.messageIds);
-            setMessages((prev) =>
-              prev.map((m) =>
-                readIds.has(m.id) ? { ...m, readAt: payload.readAt ?? Date.now() } : m
-              )
-            );
-          } else if (payload.type === 'message:delete' && payload.messageId) {
-            setMessages((prev) => prev.filter((m) => m.id !== payload.messageId));
-            loadAllThreads();
-          } else if (payload.type === 'group:message:delete' && payload.messageId) {
-            setMessages((prev) => prev.filter((m) => m.id !== payload.messageId));
-            loadAllThreads();
-          } else if (payload.type === 'group:message:new' && payload.message) {
-            const env = payload.message as GroupMessageEnvelope;
-            const grpEntry = groupsRef.current.find(
-              (item) => item.group.id === env.groupId
-            );
-            let targetGroup = grpEntry?.group;
-            if (!targetGroup) {
-              await loadAllThreads();
-              targetGroup = groupsRef.current.find(
-                (item) => item.group.id === env.groupId
-              )?.group;
-            }
-            if (!targetGroup) return;
-
-            const dec = await decryptGroupEnvelope(env, targetGroup, payload.sender);
-            const cur = activeTargetRef.current;
-            const isActiveGroup =
-              cur?.kind === 'group' && cur.group.id === env.groupId;
-
-            if (isActiveGroup) {
-              setMessages((prev) => {
-                if (prev.some((m) => m.id === dec.id)) return prev;
-                return [...prev, dec];
-              });
-            }
-
-            const prefix =
-              dec.fromId === session.user.id
-                ? 'Vous : '
-                : dec.sender
-                  ? `${dec.sender.displayName} : `
-                  : '';
-
-            setGroups((prev) =>
-              prev
-                .map((item) =>
-                  item.group.id === env.groupId
-                    ? {
-                        ...item,
-                        lastMessagePreview: `${prefix}${dec.text}`,
-                        lastTimestamp: dec.timestamp,
-                      }
-                    : item
-                )
-                .sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0))
-            );
-
-            if (
-              dec.fromId !== session.user.id &&
-              document.visibilityState !== 'visible' &&
-              !pushStateRef.current.isSubscribed &&
-              pushStateRef.current.permission === 'granted'
-            ) {
-              const discreet = pushStateRef.current.discreetMode;
-              void showLocalServiceWorkerNotification({
-                title: discreet
-                  ? 'DISCRET'
-                  : `${targetGroup.name} • ${dec.sender?.displayName ?? 'Membre'}`,
-                body: discreet
-                  ? 'Nouvelle activité de groupe chiffrée'
-                  : 'Nouveau message de groupe chiffré',
-                tag: `group-msg-${env.id}`,
-                data: {
-                  url: `/?open=group&groupId=${encodeURIComponent(targetGroup.id)}`,
-                  type: 'group',
-                  groupId: targetGroup.id,
-                },
-              });
-            }
-          } else if (payload.type === 'message:new' && payload.message) {
-            const env = payload.message as EncryptedMessageEnvelope;
-            const peerId =
-              env.fromId === session.user.id ? env.toId : env.fromId;
-
-            const cur = activeTargetRef.current;
-            let peerObj =
-              cur?.kind === 'dm' && cur.peer.id === peerId
-                ? cur.peer
-                : payload.sender?.id === peerId
-                  ? payload.sender
-                  : undefined;
-
-            if (!peerObj) {
-              const userRes = await fetch(`/api/users/${encodeURIComponent(peerId)}`, {
-                headers: { Authorization: `Bearer ${session.token}` },
-              });
-              if (userRes.ok) {
-                const userData = await userRes.json();
-                peerObj = userData.user as PublicUser;
-              }
-            }
-
-            if (!peerObj) return;
-
-            const dec = await decryptEnvelope(env, peerObj);
-
-            const isActiveConversation =
-              cur?.kind === 'dm' &&
-              getCanonicalConversationId(session.user.id, cur.peer.id) ===
-                env.conversationId;
-
-            if (isActiveConversation) {
-              setMessages((prev) => {
-                if (prev.some((m) => m.id === dec.id)) return prev;
-                return [...prev, dec];
-              });
-              if (env.fromId !== session.user.id) {
-                markConversationRead(peerId);
-              }
-            }
-
-            setConversations((prev) => {
-              const exists = prev.some((c) => c.peer.id === peerId);
-              const nextUnread =
-                isActiveConversation || env.fromId === session.user.id ? 0 : 1;
-
-              const updatedList = exists
-                ? prev.map((c) =>
-                    c.peer.id === peerId
-                      ? {
-                          ...c,
-                          lastMessagePreview: dec.text,
-                          lastTimestamp: dec.timestamp,
-                          unreadCount: isActiveConversation
-                            ? 0
-                            : c.unreadCount + nextUnread,
-                        }
-                      : c
-                  )
-                : [
-                    {
-                      peer: peerObj!,
-                      lastMessagePreview: dec.text,
-                      lastTimestamp: dec.timestamp,
-                      unreadCount: nextUnread,
-                    },
-                    ...prev,
-                  ];
-
-              return [...updatedList].sort(
-                (a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0)
-              );
-            });
-
-            if (
-              env.fromId !== session.user.id &&
-              document.visibilityState !== 'visible' &&
-              !pushStateRef.current.isSubscribed &&
-              pushStateRef.current.permission === 'granted'
-            ) {
-              const discreet = pushStateRef.current.discreetMode;
-              void showLocalServiceWorkerNotification({
-                title: discreet
-                  ? 'DISCRET'
-                  : `Nouveau message de ${peerObj.displayName}`,
-                body: discreet
-                  ? 'Nouveau message chiffré reçu'
-                  : 'Message chiffré reçu • Appuyez pour déchiffrer',
-                tag: `dm-msg-${env.id}`,
-                data: {
-                  url: `/?open=dm&peerId=${encodeURIComponent(peerObj.id)}`,
-                  type: 'dm',
-                  peerId: peerObj.id,
-                },
-              });
-            }
           }
         } catch {
           // Ignore malformed frame
@@ -968,29 +732,21 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         if (!closedByUser) {
           const delay = Math.min(1000 * Math.pow(1.6, attempt), 10000);
           attempt += 1;
-          reconnectTimer = window.setTimeout(connect, delay);
+          reconnectTimer = window.setTimeout(() => {
+            void connect();
+          }, delay);
         }
       };
     }
 
-    connect();
+    void connect();
 
     return () => {
       closedByUser = true;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
-  }, [
-    session.token,
-    session.user.id,
-    decryptEnvelope,
-    decryptGroupEnvelope,
-    loadAllThreads,
-    loadFriends,
-    loadMessagesForTarget,
-    markConversationRead,
-    onUpdateUser,
-  ]);
+  }, [session.token]);
 
   const openFromNotificationData = useCallback(
     async (data: { type?: string; peerId?: string; groupId?: string } | null | undefined) => {
@@ -1006,15 +762,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         if (existingGroup) {
           setActiveTarget({ kind: 'group', group: existingGroup });
           setMobileShowChat(true);
-          return;
-        }
-        await loadAllThreads();
-        const reloaded = groupsRef.current.find(
-          (g) => g.group.id === data.groupId
-        )?.group;
-        if (reloaded) {
-          setActiveTarget({ kind: 'group', group: reloaded });
-          setMobileShowChat(true);
         }
         return;
       }
@@ -1027,20 +774,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           setMobileShowChat(true);
           return;
         }
-        const res = await fetch(
-          `/api/users/${encodeURIComponent(data.peerId)}`,
-          { headers: { Authorization: `Bearer ${session.token}` } }
-        ).catch(() => null);
-        if (res && res.ok) {
-          const json = (await res.json()) as { user?: PublicUser };
-          if (json.user) {
-            setActiveTarget({ kind: 'dm', peer: json.user });
-            setMobileShowChat(true);
-          }
+        const fetchedPeer = await fetchPublicProfile(data.peerId).catch(() => null);
+        if (fetchedPeer) {
+          setActiveTarget({ kind: 'dm', peer: fetchedPeer });
+          setMobileShowChat(true);
         }
       }
     },
-    [loadAllThreads, session.token]
+    []
   );
 
   // Listen for Service Worker notification clicks & initial URL deep-link params
@@ -1086,90 +827,52 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     return 'none';
   }
 
-  function applyFriendsSnapshot(data: FriendsSnapshot) {
-    setFriendsSnapshot({
-      friends: data.friends ?? [],
-      incoming: data.incoming ?? [],
-      outgoing: data.outgoing ?? [],
-      blocked: data.blocked ?? [],
-      blockedByIds: data.blockedByIds ?? [],
-    });
-  }
-
   async function handleSendFriendRequest(targetUserId: string) {
-    const res = await fetch('/api/friends/request', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.token}`,
-      },
-      body: JSON.stringify({ targetUserId }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Demande impossible.');
-    applyFriendsSnapshot(data);
+    const status = await sendFriendRequestInFirestore(session.user.id, targetUserId);
+    if (status === 'requested') {
+      void dispatchPushNotification({
+        targetUserIds: [targetUserId],
+        title: `Demande d'ami • ${session.user.displayName}`,
+        body: `${session.user.handle} souhaite rejoindre vos contacts DISCRET.`,
+        discreetTitle: 'DISCRET',
+        discreetBody: 'Nouvelle demande de contact reçue',
+        tag: `friend-req-${session.user.id}`,
+        data: { url: '/?open=friends', type: 'friend_request', fromUserId: session.user.id },
+      });
+    }
   }
 
   async function handleAcceptFriendRequest(fromUserId: string) {
-    const res = await fetch('/api/friends/accept', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.token}`,
+    await acceptFriendRequestInFirestore(session.user.id, fromUserId);
+    void dispatchPushNotification({
+      targetUserIds: [fromUserId],
+      title: `Demande acceptée • ${session.user.displayName}`,
+      body: `${session.user.displayName} fait maintenant partie de votre liste d'amis.`,
+      discreetTitle: 'DISCRET',
+      discreetBody: 'Une demande de contact a été acceptée',
+      tag: `friend-acc-${session.user.id}`,
+      data: {
+        url: `/?open=dm&peerId=${encodeURIComponent(session.user.id)}`,
+        type: 'friend_accepted',
+        peerId: session.user.id,
       },
-      body: JSON.stringify({ fromUserId }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Acceptation impossible.');
-    applyFriendsSnapshot(data);
   }
 
   async function handleDeclineFriendRequest(userId: string) {
-    const res = await fetch('/api/friends/decline', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.token}`,
-      },
-      body: JSON.stringify({ userId }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Refus impossible.');
-    applyFriendsSnapshot(data);
+    await declineFriendRequestInFirestore(session.user.id, userId);
   }
 
   async function handleRemoveFriend(userId: string) {
-    const res = await fetch(`/api/friends/${encodeURIComponent(userId)}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${session.token}` },
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Suppression impossible.');
-    applyFriendsSnapshot(data);
+    await removeFriendInFirestore(session.user.id, userId);
   }
 
   async function handleBlockUser(targetUserId: string) {
-    const res = await fetch('/api/blocks', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.token}`,
-      },
-      body: JSON.stringify({ targetUserId }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Blocage impossible.');
-    applyFriendsSnapshot(data);
+    await blockUserInFirestore(session.user.id, targetUserId);
   }
 
   async function handleUnblockUser(targetUserId: string) {
-    const res = await fetch(`/api/blocks/${encodeURIComponent(targetUserId)}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${session.token}` },
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Déblocage impossible.');
-    applyFriendsSnapshot(data);
+    await unblockUserInFirestore(session.user.id, targetUserId);
   }
 
   function emitTyping(isTyping: boolean) {
@@ -1190,6 +893,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         JSON.stringify({
           type: 'typing:state',
           groupId: activeTarget.group.id,
+          memberIds: activeTarget.group.members.map((m) => m.id),
           isTyping,
         })
       );
@@ -1250,54 +954,46 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           rawSignature: encrypted.signature,
         };
 
+        knownMsgIdsRef.current.add(id);
+        animatedNewMsgIdsRef.current.add(id);
         setMessages((prev) =>
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
         setComposerText('');
 
-        const res = await fetch('/api/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.token}`,
-          },
-          body: JSON.stringify({
-            id,
-            toId: peer.id,
-            ciphertext: encrypted.ciphertext,
-            iv: encrypted.iv,
-            signature: encrypted.signature,
-            timestamp,
-            ttlSeconds: ephemeralDuration,
-          }),
+        const savedEnv = await sendDirectMessageInFirestore({
+          id,
+          fromId: session.user.id,
+          toId: peer.id,
+          ciphertext: encrypted.ciphertext,
+          iv: encrypted.iv,
+          signature: encrypted.signature,
+          timestamp,
+          ttlSeconds: ephemeralDuration,
         });
 
-        if (!res.ok) {
-          setMessages((prev) => prev.filter((m) => m.id !== id));
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "Échec d'envoi du message.");
-        }
-
-        const data = (await res.json()) as { message: EncryptedMessageEnvelope };
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === id ? { ...m, expiresAt: data.message.expiresAt } : m
+            m.id === id ? { ...m, expiresAt: savedEnv.expiresAt } : m
           )
         );
 
-        setConversations((prev) =>
-          prev
-            .map((c) =>
-              c.peer.id === peer.id
-                ? {
-                    ...c,
-                    lastMessagePreview: trimmed,
-                    lastTimestamp: timestamp,
-                  }
-                : c
-            )
-            .sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0))
-        );
+        if (peer.id !== session.user.id) {
+          void dispatchPushNotification({
+            targetUserIds: [peer.id],
+            title: `Nouveau message de ${session.user.displayName}`,
+            body: 'Message chiffré reçu • Appuyez pour déchiffrer',
+            discreetTitle: 'DISCRET',
+            discreetBody: 'Nouveau message chiffré reçu',
+            tag: `dm-msg-${id}`,
+            data: {
+              url: `/?open=dm&peerId=${encodeURIComponent(session.user.id)}`,
+              type: 'dm',
+              peerId: session.user.id,
+              messageId: id,
+            },
+          });
+        }
       } else {
         const group = activeTarget.group;
         const groupKey = await getGroupAesKey(group);
@@ -1333,56 +1029,49 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           rawSignature: encrypted.signature,
         };
 
+        knownMsgIdsRef.current.add(id);
+        animatedNewMsgIdsRef.current.add(id);
         setMessages((prev) =>
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
         setComposerText('');
 
-        const res = await fetch(
-          `/api/groups/${encodeURIComponent(group.id)}/messages`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.token}`,
-            },
-            body: JSON.stringify({
-              id,
-              ciphertext: encrypted.ciphertext,
-              iv: encrypted.iv,
-              signature: encrypted.signature,
-              timestamp,
-              ttlSeconds: ephemeralDuration,
-            }),
-          }
-        );
+        const savedGroupEnv = await sendGroupMessageInFirestore({
+          id,
+          groupId: group.id,
+          fromId: session.user.id,
+          ciphertext: encrypted.ciphertext,
+          iv: encrypted.iv,
+          signature: encrypted.signature,
+          timestamp,
+          ttlSeconds: ephemeralDuration,
+        });
 
-        if (!res.ok) {
-          setMessages((prev) => prev.filter((m) => m.id !== id));
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "Échec d'envoi du message.");
-        }
-
-        const data = (await res.json()) as { message: GroupMessageEnvelope };
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === id ? { ...m, expiresAt: data.message.expiresAt } : m
+            m.id === id ? { ...m, expiresAt: savedGroupEnv.expiresAt } : m
           )
         );
 
-        setGroups((prev) =>
-          prev
-            .map((item) =>
-              item.group.id === group.id
-                ? {
-                    ...item,
-                    lastMessagePreview: `Vous : ${trimmed}`,
-                    lastTimestamp: timestamp,
-                  }
-                : item
-            )
-            .sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0))
-        );
+        const recipientIds = group.members
+          .map((m) => m.id)
+          .filter((mid) => mid !== session.user.id);
+        if (recipientIds.length > 0) {
+          void dispatchPushNotification({
+            targetUserIds: recipientIds,
+            title: `${group.name} • ${session.user.displayName}`,
+            body: 'Nouveau message de groupe chiffré',
+            discreetTitle: 'DISCRET',
+            discreetBody: 'Nouvelle activité de groupe chiffrée',
+            tag: `group-msg-${id}`,
+            data: {
+              url: `/?open=group&groupId=${encodeURIComponent(group.id)}`,
+              type: 'group',
+              groupId: group.id,
+              messageId: id,
+            },
+          });
+        }
       }
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "Erreur d'envoi.");
@@ -1395,24 +1084,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     try {
       setMessages((prev) => prev.filter((m) => m.id !== msg.id));
       if (msg.groupId) {
-        await fetch(
-          `/api/groups/${encodeURIComponent(msg.groupId)}/messages/${encodeURIComponent(
-            msg.id
-          )}`,
-          {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${session.token}` },
-          }
-        );
+        await deleteGroupMessageInFirestore(msg.groupId, msg.id);
       } else {
-        await fetch(`/api/messages/${encodeURIComponent(msg.id)}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${session.token}` },
-        });
+        await deleteDirectMessageInFirestore(msg.conversationId, msg.id);
       }
-      loadAllThreads();
     } catch {
-      if (activeTarget) loadMessagesForTarget(activeTarget);
+      // Snapshot listener restores authoritative state if deletion fails
     }
   }
 
@@ -1428,14 +1105,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   async function handleSelectPeer(peer: PublicUser) {
     try {
-      await fetch('/api/conversations/open', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.token}`,
-        },
-        body: JSON.stringify({ peerId: peer.id }),
-      });
+      await openConversationInFirestore(session.user.id, peer.id);
     } catch {
       // Continue opening locally
     }
@@ -1568,9 +1238,20 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       >
         {/* Top App Wordmark + Actions */}
         <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
-          <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
-            DISCRET
-          </span>
+          {onOpenPresentation ? (
+            <button
+              type="button"
+              onClick={onOpenPresentation}
+              title="Voir la page de présentation de DISCRET"
+              className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white hover:text-emerald-300 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              DISCRET
+            </button>
+          ) : (
+            <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
+              DISCRET
+            </span>
+          )}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -1631,7 +1312,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             </button>
             <button
               type="button"
-              onClick={onLockSession}
+              onClick={handleLockSession}
               title="Verrouiller la session et effacer les clés de la mémoire"
               aria-label="Verrouiller la session"
               className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer"
@@ -2010,6 +1691,35 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   ))}
                 </div>
 
+                {tts.supported && (
+                  <button
+                    type="button"
+                    onClick={tts.toggleAutoRead}
+                    title={
+                      tts.autoRead
+                        ? 'Désactiver la lecture vocale automatique (locale)'
+                        : 'Activer la lecture vocale automatique des nouveaux messages (locale)'
+                    }
+                    aria-label={
+                      tts.autoRead
+                        ? 'Désactiver la lecture vocale automatique'
+                        : 'Activer la lecture vocale automatique'
+                    }
+                    aria-pressed={tts.autoRead}
+                    className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border px-2.5 py-2 transition-colors cursor-pointer ${
+                      tts.autoRead
+                        ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                        : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09] hover:text-white'
+                    }`}
+                  >
+                    {tts.autoRead ? (
+                      <Volume2 className="h-4 w-4" />
+                    ) : (
+                      <VolumeX className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
+
                 {activePeer ? (
                   <div className="flex items-center gap-1.5">
                     {!isSelfSelected &&
@@ -2073,6 +1783,47 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 ) : null}
               </div>
             </header>
+
+            {/* Local Web Speech Playback & Speed Control Bar */}
+            {tts.supported && (tts.speakingMessageId !== null || tts.autoRead) && (
+              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] bg-emerald-500/[0.04] px-4 sm:px-6 py-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0 text-emerald-300">
+                  <Volume2
+                    className={`h-3.5 w-3.5 shrink-0 ${
+                      tts.speakingMessageId !== null ? 'animate-pulse' : ''
+                    }`}
+                  />
+                  <span className="truncate font-medium">
+                    {tts.speakingMessageId !== null
+                      ? 'Synthèse vocale locale en cours'
+                      : 'Lecture vocale auto activée'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={tts.cycleRate}
+                    title="Changer la vitesse de lecture vocale"
+                    aria-label={`Vitesse de lecture ${tts.rate}x`}
+                    className="rounded-lg border border-white/[0.1] bg-white/[0.05] px-2.5 py-1 font-mono text-[11px] font-medium text-zinc-200 hover:bg-white/[0.1] transition-colors tabular-nums cursor-pointer"
+                  >
+                    {tts.rate}×
+                  </button>
+                  {tts.speakingMessageId !== null && (
+                    <button
+                      type="button"
+                      onClick={tts.stop}
+                      title="Arrêter la lecture vocale"
+                      aria-label="Arrêter la lecture vocale"
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+                    >
+                      <Square className="h-3 w-3 fill-current" />
+                      <span>Arrêter</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Mobile Ephemeral Selector Bar */}
             <div className="sm:hidden flex items-center justify-between gap-2 border-b border-white/[0.06] bg-white/[0.015] px-4 py-2">
@@ -2167,13 +1918,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 messages.map((msg) => {
                   const isMine = msg.fromId === session.user.id;
                   const showGroupSender = Boolean(msg.groupId && !isMine && msg.sender);
+                  const isNewEntry = animatedNewMsgIdsRef.current.has(msg.id);
 
                   return (
                     <div
                       key={msg.id}
                       className={`group flex flex-col ${
-                        isMine ? 'items-end' : 'items-start'
-                      }`}
+                        isNewEntry ? 'animate-msg-enter' : 'animate-msg-history'
+                      } ${isMine ? 'items-end' : 'items-start'}`}
                     >
                       {showGroupSender && msg.sender && (
                         <button
@@ -2251,6 +2003,41 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                 <Check className="h-3.5 w-3.5 text-zinc-400" />
                               )}
                             </span>
+                          )}
+
+                          {tts.supported && !msg.decryptionError && msg.text.trim().length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const speakerPrefix = isMine
+                                  ? undefined
+                                  : msg.groupId
+                                    ? msg.sender?.displayName
+                                    : activePeer?.displayName;
+                                tts.speakMessage(msg.id, msg.text, speakerPrefix);
+                              }}
+                              title={
+                                tts.speakingMessageId === msg.id
+                                  ? 'Arrêter la lecture'
+                                  : 'Écouter ce message (synthèse vocale locale)'
+                              }
+                              aria-label={
+                                tts.speakingMessageId === msg.id
+                                  ? 'Arrêter la lecture du message'
+                                  : 'Écouter ce message'
+                              }
+                              className={`ml-1 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
+                                tts.speakingMessageId === msg.id
+                                  ? 'opacity-100 text-emerald-400'
+                                  : 'opacity-70 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              {tts.speakingMessageId === msg.id ? (
+                                <Square className="h-3 w-3 fill-current" />
+                              ) : (
+                                <Volume2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
                           )}
 
                           {(isMine ||

@@ -14,6 +14,14 @@ import {
 } from 'lucide-react';
 import { BANNER_PRESETS } from '../lib/banners';
 import { unwrapGroupKeyBytes, wrapGroupKeyForMember } from '../lib/crypto';
+import {
+  addGroupMemberInFirestore,
+  deleteGroupInFirestore,
+  fetchPublicProfile,
+  leaveGroupInFirestore,
+  searchPublicUsers,
+  updateGroupInFirestore,
+} from '../lib/firestoreStore';
 import { compressBannerImage, compressSquareAvatar } from '../lib/imageUtils';
 import type {
   AccentToneKey,
@@ -90,31 +98,22 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `/api/users/search?q=${encodeURIComponent(trimmed)}`,
-          {
-            headers: { Authorization: `Bearer ${session.token}` },
-            signal: controller.signal,
-          }
-        );
-        const data = await res.json();
-        if (res.ok) {
+        const users = await searchPublicUsers(trimmed, session.user.id);
+        if (!cancelled) {
           const existingIds = new Set(group.members.map((m) => m.id));
-          setSearchResults(
-            (data.users as PublicUser[]).filter((u) => !existingIds.has(u.id))
-          );
+          setSearchResults(users.filter((u) => !existingIds.has(u.id)));
         }
       } catch {
-        // Ignore abort
+        // Ignore
       }
     }, 200);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      controller.abort();
     };
   }, [query, isOpen, group, session.token]);
 
@@ -155,24 +154,25 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/groups/${encodeURIComponent(group.id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.token}`,
-        },
-        body: JSON.stringify({
-          name: name.trim() || group.name,
-          description: description.trim(),
-          avatarDataUrl,
-          bannerPreset,
-          bannerDataUrl,
-          accentTone,
-        }),
+      const nextName = name.trim() || group.name;
+      const nextDesc = description.trim();
+      await updateGroupInFirestore(group.id, {
+        name: nextName,
+        description: nextDesc,
+        avatarDataUrl,
+        bannerPreset,
+        bannerDataUrl,
+        accentTone,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Échec de mise à jour.');
-      onGroupUpdated(data.group as GroupInfo);
+      onGroupUpdated({
+        ...group,
+        name: nextName,
+        description: nextDesc,
+        avatarDataUrl,
+        bannerPreset,
+        bannerDataUrl,
+        accentTone,
+      });
       setSavedNotice(true);
       setTimeout(() => setSavedNotice(false), 1500);
     } catch (err) {
@@ -197,13 +197,9 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
       )?.ecdhPublicJwk;
 
       if (!wrapperPub) {
-        const uRes = await fetch(
-          `/api/users/${encodeURIComponent(myEnvelope.wrappedByUserId)}`,
-          { headers: { Authorization: `Bearer ${session.token}` } }
-        );
-        if (uRes.ok) {
-          const uData = await uRes.json();
-          wrapperPub = (uData.user as PublicUser).ecdhPublicJwk;
+        const wrapperProfile = await fetchPublicProfile(myEnvelope.wrappedByUserId);
+        if (wrapperProfile) {
+          wrapperPub = wrapperProfile.ecdhPublicJwk;
         }
       }
 
@@ -228,22 +224,23 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
         memberUserId: newUser.id,
       });
 
-      const res = await fetch(
-        `/api/groups/${encodeURIComponent(group.id)}/members`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.token}`,
-          },
-          body: JSON.stringify({ userId: newUser.id, keyEnvelope }),
-        }
+      await addGroupMemberInFirestore(
+        group.id,
+        session.user.id,
+        newUser.id,
+        keyEnvelope
       );
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Impossible d'ajouter ce membre.");
-
-      onGroupUpdated(data.group as GroupInfo);
+      onGroupUpdated({
+        ...group,
+        members: group.members.some((m) => m.id === newUser.id)
+          ? group.members
+          : [...group.members, newUser],
+        keyEnvelopes: {
+          ...group.keyEnvelopes,
+          [newUser.id]: keyEnvelope,
+        },
+      });
       setQuery('');
       setSearchResults([]);
     } catch (err) {
@@ -257,17 +254,11 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
     if (!group) return;
     setLeaving(true);
     try {
-      const res = await fetch(
-        `/api/groups/${encodeURIComponent(group.id)}/leave`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${session.token}` },
-        }
-      );
-      if (res.ok) {
-        onGroupLeft(group.id);
-        onClose();
-      }
+      await leaveGroupInFirestore(group.id, session.user.id);
+      onGroupLeft(group.id);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur.');
     } finally {
       setLeaving(false);
     }
@@ -278,14 +269,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
     setDeleting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/groups/${encodeURIComponent(group.id)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${session.token}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Impossible de supprimer le groupe.');
-      }
+      await deleteGroupInFirestore(group.id);
       if (onGroupDeleted) {
         onGroupDeleted(group.id);
       } else {

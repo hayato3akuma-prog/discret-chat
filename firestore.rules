@@ -1,0 +1,681 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Global Hardened Primitives
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVaultIdentity() {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && request.auth.token.email is string
+        && request.auth.token.email.matches('^[a-f0-9]{40}@vault\\.discret\\.app$');
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true || isVaultIdentity()
+      );
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 260 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidShortId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isNullableString(val, maxLen) {
+      return val == null || (val is string && val.size() <= maxLen);
+    }
+
+    function isNullableNumber(val) {
+      return val == null || (val is number);
+    }
+
+    function isValidJwk(jwk) {
+      return jwk is map
+        && jwk.keys().hasAll(['kty', 'crv', 'x', 'y'])
+        && jwk.kty is string && jwk.kty.size() <= 16
+        && jwk.crv is string && jwk.crv.size() <= 16
+        && jwk.x is string && jwk.x.size() <= 128
+        && jwk.y is string && jwk.y.size() <= 128;
+    }
+
+    function isBlockedPair(userA, userB) {
+      return exists(/databases/$(database)/documents/blocks/$(userA + '__' + userB))
+        || exists(/databases/$(database)/documents/blocks/$(userB + '__' + userA));
+    }
+
+    // =========================================================================
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // =========================================================================
+    function isValidPrivateUser(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'handle', 'displayName', 'lookupId', 'encryptedVault',
+          'vaultSalt', 'vaultIv', 'fingerprint', 'ecdhPublicJwk', 'ecdsaPublicJwk',
+          'lastSeen', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'handle', 'displayName', 'lookupId', 'encryptedVault',
+          'vaultSalt', 'vaultIv', 'fingerprint', 'ecdhPublicJwk', 'ecdsaPublicJwk',
+          'lastSeen', 'createdAt', 'updatedAt'
+        ])
+        && isValidShortId(data.ownerUid)
+        && data.ownerUid == request.auth.uid
+        && data.handle is string && data.handle.size() >= 3 && data.handle.size() <= 32
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 32
+        && data.lookupId is string && data.lookupId.size() >= 32 && data.lookupId.size() <= 128 && data.lookupId.matches('^[a-f0-9]+$')
+        && data.encryptedVault is string && data.encryptedVault.size() >= 16 && data.encryptedVault.size() <= 8192
+        && data.vaultSalt is string && data.vaultSalt.size() >= 8 && data.vaultSalt.size() <= 128
+        && data.vaultIv is string && data.vaultIv.size() >= 8 && data.vaultIv.size() <= 128
+        && data.fingerprint is string && data.fingerprint.size() >= 8 && data.fingerprint.size() <= 64
+        && isValidJwk(data.ecdhPublicJwk)
+        && isValidJwk(data.ecdsaPublicJwk)
+        && data.lastSeen is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPublicProfile(data) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'handle', 'displayName', 'bio', 'biography',
+          'avatarDataUrl', 'avatarIcon', 'accentTone', 'bannerPreset', 'bannerDataUrl',
+          'ecdhPublicJwk', 'ecdsaPublicJwk', 'fingerprint', 'createdAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'handle', 'displayName', 'bio', 'biography',
+          'avatarDataUrl', 'avatarIcon', 'accentTone', 'bannerPreset', 'bannerDataUrl',
+          'ecdhPublicJwk', 'ecdsaPublicJwk', 'fingerprint', 'createdAtMs', 'createdAt', 'updatedAt'
+        ])
+        && isValidShortId(data.id)
+        && isValidShortId(data.ownerUid)
+        && data.ownerUid == request.auth.uid
+        && data.id == request.auth.uid
+        && data.handle is string && data.handle.size() >= 3 && data.handle.size() <= 32
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 32
+        && data.bio is string && data.bio.size() <= 80
+        && data.biography is string && data.biography.size() <= 400
+        && isNullableString(data.avatarDataUrl, 160000)
+        && data.avatarIcon in ['initials', 'shield', 'moon', 'compass', 'eye', 'feather', 'diamond']
+        && data.accentTone in ['platinum', 'emerald', 'slate', 'amber', 'crimson']
+        && data.bannerPreset in ['none', 'obsidian', 'monolith', 'eclipse', 'emerald', 'custom']
+        && isNullableString(data.bannerDataUrl, 260000)
+        && isValidJwk(data.ecdhPublicJwk)
+        && isValidJwk(data.ecdsaPublicJwk)
+        && data.fingerprint is string && data.fingerprint.size() >= 8 && data.fingerprint.size() <= 64
+        && data.createdAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidHandleIndex(data) {
+      return data.keys().hasAll(['userId', 'handle', 'createdAt'])
+        && data.keys().hasOnly(['userId', 'handle', 'createdAt'])
+        && isValidShortId(data.userId)
+        && data.userId == request.auth.uid
+        && data.handle is string && data.handle.size() >= 3 && data.handle.size() <= 32
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSearchBucket(data) {
+      return data.keys().hasAll(['prefix', 'userIds', 'updatedAt'])
+        && data.keys().hasOnly(['prefix', 'userIds', 'updatedAt'])
+        && data.prefix is string && data.prefix.size() >= 2 && data.prefix.size() <= 24 && data.prefix.matches('^[a-z0-9_]+$')
+        && data.userIds is list && data.userIds.size() <= 12
+        && (data.userIds.size() == 0 || (data.userIds[0] is string && data.userIds[0].size() <= 128))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidConversation(data) {
+      return data.keys().hasAll([
+          'id', 'userA', 'userB', 'participantIds',
+          'lastMessageId', 'lastMessageCiphertext', 'lastMessageIv', 'lastMessageSignature',
+          'lastMessageFromId', 'lastMessageToId', 'lastMessageTimestamp', 'lastMessageExpiresAt',
+          'lastMessageReadAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userA', 'userB', 'participantIds',
+          'lastMessageId', 'lastMessageCiphertext', 'lastMessageIv', 'lastMessageSignature',
+          'lastMessageFromId', 'lastMessageToId', 'lastMessageTimestamp', 'lastMessageExpiresAt',
+          'lastMessageReadAt', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidShortId(data.userA)
+        && isValidShortId(data.userB)
+        && data.userA <= data.userB
+        && data.id == (data.userA + '__' + data.userB)
+        && data.participantIds is list && data.participantIds.size() >= 1 && data.participantIds.size() <= 2
+        && data.participantIds[0] is string && data.participantIds[0].size() <= 128
+        && data.userA in data.participantIds
+        && data.userB in data.participantIds
+        && isNullableString(data.lastMessageId, 128)
+        && isNullableString(data.lastMessageCiphertext, 65536)
+        && isNullableString(data.lastMessageIv, 128)
+        && isNullableString(data.lastMessageSignature, 512)
+        && isNullableString(data.lastMessageFromId, 128)
+        && isNullableString(data.lastMessageToId, 128)
+        && isNullableNumber(data.lastMessageTimestamp)
+        && isNullableNumber(data.lastMessageExpiresAt)
+        && isNullableNumber(data.lastMessageReadAt)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDirectMessage(data) {
+      return data.keys().hasAll([
+          'id', 'conversationId', 'fromId', 'toId', 'ciphertext', 'iv',
+          'signature', 'timestamp', 'expiresAt', 'readAt', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'conversationId', 'fromId', 'toId', 'ciphertext', 'iv',
+          'signature', 'timestamp', 'expiresAt', 'readAt', 'createdAt'
+        ])
+        && isValidShortId(data.id)
+        && isValidId(data.conversationId)
+        && isValidShortId(data.fromId)
+        && isValidShortId(data.toId)
+        && data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 65536
+        && data.iv is string && data.iv.size() >= 1 && data.iv.size() <= 128
+        && data.signature is string && data.signature.size() >= 1 && data.signature.size() <= 512
+        && data.timestamp is number
+        && isNullableNumber(data.expiresAt)
+        && isNullableNumber(data.readAt)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'description', 'avatarDataUrl', 'bannerPreset', 'bannerDataUrl',
+          'accentTone', 'creatorId', 'memberIds',
+          'lastMessageId', 'lastMessageFromId', 'lastMessageCiphertext', 'lastMessageIv',
+          'lastMessageSignature', 'lastMessageTimestamp', 'lastMessageExpiresAt',
+          'createdAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'description', 'avatarDataUrl', 'bannerPreset', 'bannerDataUrl',
+          'accentTone', 'creatorId', 'memberIds',
+          'lastMessageId', 'lastMessageFromId', 'lastMessageCiphertext', 'lastMessageIv',
+          'lastMessageSignature', 'lastMessageTimestamp', 'lastMessageExpiresAt',
+          'createdAtMs', 'createdAt', 'updatedAt'
+        ])
+        && isValidShortId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 40
+        && data.description is string && data.description.size() <= 100
+        && isNullableString(data.avatarDataUrl, 160000)
+        && data.bannerPreset in ['none', 'obsidian', 'monolith', 'eclipse', 'emerald', 'custom']
+        && isNullableString(data.bannerDataUrl, 260000)
+        && data.accentTone in ['platinum', 'emerald', 'slate', 'amber', 'crimson']
+        && isValidShortId(data.creatorId)
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 25
+        && data.memberIds[0] is string && data.memberIds[0].size() <= 128
+        && isNullableString(data.lastMessageId, 128)
+        && isNullableString(data.lastMessageFromId, 128)
+        && isNullableString(data.lastMessageCiphertext, 65536)
+        && isNullableString(data.lastMessageIv, 128)
+        && isNullableString(data.lastMessageSignature, 512)
+        && isNullableNumber(data.lastMessageTimestamp)
+        && isNullableNumber(data.lastMessageExpiresAt)
+        && data.createdAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupMemberEnvelope(data) {
+      return data.keys().hasAll(['userId', 'groupId', 'iv', 'wrappedKey', 'wrappedByUserId', 'createdAt'])
+        && data.keys().hasOnly(['userId', 'groupId', 'iv', 'wrappedKey', 'wrappedByUserId', 'createdAt'])
+        && isValidShortId(data.userId)
+        && isValidShortId(data.groupId)
+        && data.iv is string && data.iv.size() >= 1 && data.iv.size() <= 128
+        && data.wrappedKey is string && data.wrappedKey.size() >= 1 && data.wrappedKey.size() <= 512
+        && isValidShortId(data.wrappedByUserId)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidGroupMessage(data) {
+      return data.keys().hasAll([
+          'id', 'groupId', 'fromId', 'ciphertext', 'iv', 'signature', 'timestamp', 'expiresAt', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'groupId', 'fromId', 'ciphertext', 'iv', 'signature', 'timestamp', 'expiresAt', 'createdAt'
+        ])
+        && isValidShortId(data.id)
+        && isValidShortId(data.groupId)
+        && isValidShortId(data.fromId)
+        && data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 65536
+        && data.iv is string && data.iv.size() >= 1 && data.iv.size() <= 128
+        && data.signature is string && data.signature.size() >= 1 && data.signature.size() <= 512
+        && data.timestamp is number
+        && isNullableNumber(data.expiresAt)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFriendRequest(data) {
+      return data.keys().hasAll(['id', 'fromId', 'toId', 'participantIds', 'createdAtMs', 'createdAt'])
+        && data.keys().hasOnly(['id', 'fromId', 'toId', 'participantIds', 'createdAtMs', 'createdAt'])
+        && isValidId(data.id)
+        && isValidShortId(data.fromId)
+        && isValidShortId(data.toId)
+        && data.participantIds is list && data.participantIds.size() == 2
+        && data.participantIds[0] is string && data.participantIds[0].size() <= 128
+        && data.createdAtMs is number
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFriendship(data) {
+      return data.keys().hasAll(['id', 'userA', 'userB', 'participantIds', 'createdAtMs', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userA', 'userB', 'participantIds', 'createdAtMs', 'createdAt'])
+        && isValidId(data.id)
+        && isValidShortId(data.userA)
+        && isValidShortId(data.userB)
+        && data.userA < data.userB
+        && data.id == (data.userA + '__' + data.userB)
+        && data.participantIds is list && data.participantIds.size() == 2
+        && data.participantIds[0] is string && data.participantIds[0].size() <= 128
+        && data.createdAtMs is number
+        && data.createdAt is timestamp;
+    }
+
+    function isValidBlock(data) {
+      return data.keys().hasAll(['id', 'blockerId', 'targetId', 'participantIds', 'createdAtMs', 'createdAt'])
+        && data.keys().hasOnly(['id', 'blockerId', 'targetId', 'participantIds', 'createdAtMs', 'createdAt'])
+        && isValidId(data.id)
+        && isValidShortId(data.blockerId)
+        && isValidShortId(data.targetId)
+        && data.participantIds is list && data.participantIds.size() == 2
+        && data.participantIds[0] is string && data.participantIds[0].size() <= 128
+        && data.createdAtMs is number
+        && data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // Connectivity Check (non-PII probe)
+    // =========================================================================
+    match /test/{docId} {
+      allow get: if isSignedIn();
+      allow list, write: if false;
+    }
+
+    // =========================================================================
+    // 1. Private User Vaults
+    // =========================================================================
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidShortId(userId) && isOwner(userId);
+      allow list: if isVerifiedUser() && existing().ownerUid == request.auth.uid;
+      allow create: if isVerifiedUser()
+        && isValidShortId(userId)
+        && isOwner(userId)
+        && isValidPrivateUser(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidShortId(userId)
+        && isOwner(userId)
+        && isValidPrivateUser(incoming())
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'handle', 'displayName', 'lookupId', 'encryptedVault',
+          'vaultSalt', 'vaultIv', 'fingerprint', 'ecdhPublicJwk', 'ecdsaPublicJwk',
+          'lastSeen', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 2. Public E2EE Profiles (No PII)
+    // =========================================================================
+    match /publicProfiles/{userId} {
+      allow get: if isVerifiedUser() && isValidShortId(userId);
+      allow list: if isVerifiedUser() && existing().ownerUid == request.auth.uid;
+      allow create: if isVerifiedUser()
+        && isValidShortId(userId)
+        && isOwner(userId)
+        && isValidPublicProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidShortId(userId)
+        && isOwner(userId)
+        && isValidPublicProfile(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().createdAtMs == existing().createdAtMs
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'handle', 'displayName', 'bio', 'biography', 'avatarDataUrl',
+          'avatarIcon', 'accentTone', 'bannerPreset', 'bannerDataUrl',
+          'ecdhPublicJwk', 'ecdsaPublicJwk', 'fingerprint', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 3. Handle Index & Search Buckets
+    // =========================================================================
+    match /handleIndex/{handleKey} {
+      allow get: if isVerifiedUser() && isValidShortId(handleKey);
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidShortId(handleKey)
+        && isValidHandleIndex(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidShortId(handleKey)
+        && existing().userId == request.auth.uid
+        && isValidHandleIndex(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['handle']);
+      allow delete: if isVerifiedUser()
+        && isValidShortId(handleKey)
+        && existing().userId == request.auth.uid;
+    }
+
+    match /searchBuckets/{prefix} {
+      allow get: if isVerifiedUser() && isValidShortId(prefix);
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidShortId(prefix)
+        && isValidSearchBucket(incoming())
+        && incoming().prefix == prefix
+        && incoming().userIds.hasOnly([request.auth.uid])
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidShortId(prefix)
+        && isValidSearchBucket(incoming())
+        && incoming().prefix == existing().prefix
+        && incoming().userIds.hasAll(existing().userIds)
+        && request.auth.uid in incoming().userIds
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['userIds', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 4. Direct Conversations & Messages
+    // =========================================================================
+    function isConvParticipantData(convData) {
+      return convData.userA == request.auth.uid || convData.userB == request.auth.uid;
+    }
+
+    function isParentConvParticipant(convId) {
+      return exists(/databases/$(database)/documents/conversations/$(convId))
+        && isConvParticipantData(get(/databases/$(database)/documents/conversations/$(convId)).data);
+    }
+
+    function isParentConvParticipantAfter(convId) {
+      return existsAfter(/databases/$(database)/documents/conversations/$(convId))
+        && isConvParticipantData(getAfter(/databases/$(database)/documents/conversations/$(convId)).data);
+    }
+
+    function isConvIdParticipant(convId) {
+      return convId.split('__').size() == 2
+        && request.auth.uid in convId.split('__');
+    }
+
+    match /conversations/{convId} {
+      allow get: if isVerifiedUser() && isValidId(convId) && isConvParticipantData(existing());
+      allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
+      allow create: if isVerifiedUser()
+        && isValidId(convId)
+        && isValidConversation(incoming())
+        && incoming().id == convId
+        && isConvParticipantData(incoming())
+        && (incoming().userA == incoming().userB || !isBlockedPair(incoming().userA, incoming().userB))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(convId)
+        && isConvParticipantData(existing())
+        && isValidConversation(incoming())
+        && incoming().id == existing().id
+        && incoming().userA == existing().userA
+        && incoming().userB == existing().userB
+        && incoming().participantIds == existing().participantIds
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (incoming().userA == incoming().userB || !isBlockedPair(incoming().userA, incoming().userB))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'lastMessageId', 'lastMessageCiphertext', 'lastMessageIv', 'lastMessageSignature',
+          'lastMessageFromId', 'lastMessageToId', 'lastMessageTimestamp', 'lastMessageExpiresAt',
+          'lastMessageReadAt', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow get: if isVerifiedUser() && isValidId(convId) && isValidShortId(messageId)
+          && (isConvIdParticipant(convId) || isParentConvParticipant(convId));
+        allow list: if isVerifiedUser() && isConvIdParticipant(convId);
+        allow create: if isVerifiedUser()
+          && isValidId(convId)
+          && isValidShortId(messageId)
+          && isValidDirectMessage(incoming())
+          && incoming().id == messageId
+          && incoming().conversationId == convId
+          && incoming().fromId == request.auth.uid
+          && incoming().createdAt == request.time
+          && isParentConvParticipantAfter(convId)
+          && (incoming().toId == request.auth.uid || !isBlockedPair(request.auth.uid, incoming().toId));
+        allow update: if isVerifiedUser()
+          && isValidId(convId)
+          && isValidShortId(messageId)
+          && isParentConvParticipant(convId)
+          && existing().toId == request.auth.uid
+          && isValidDirectMessage(incoming())
+          && incoming().id == existing().id
+          && incoming().conversationId == existing().conversationId
+          && incoming().fromId == existing().fromId
+          && incoming().toId == existing().toId
+          && incoming().ciphertext == existing().ciphertext
+          && incoming().iv == existing().iv
+          && incoming().signature == existing().signature
+          && incoming().timestamp == existing().timestamp
+          && incoming().expiresAt == existing().expiresAt
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['readAt']);
+        allow delete: if isVerifiedUser()
+          && isValidId(convId)
+          && isValidShortId(messageId)
+          && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+      }
+    }
+
+    // =========================================================================
+    // 5. E2EE Groups, Member Key Envelopes & Group Messages
+    // =========================================================================
+    function isParentGroupMember(groupId) {
+      return exists(/databases/$(database)/documents/groups/$(groupId))
+        && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+    }
+
+    match /groups/{groupId} {
+      allow get: if isVerifiedUser() && isValidShortId(groupId)
+        && request.auth.uid in existing().memberIds;
+      allow list: if isVerifiedUser() && request.auth.uid in existing().memberIds;
+      allow create: if isVerifiedUser()
+        && isValidShortId(groupId)
+        && isValidGroup(incoming())
+        && incoming().id == groupId
+        && incoming().creatorId == request.auth.uid
+        && request.auth.uid in incoming().memberIds
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidShortId(groupId)
+        && request.auth.uid in existing().memberIds
+        && isValidGroup(incoming())
+        && incoming().id == existing().id
+        && incoming().creatorId == existing().creatorId
+        && incoming().createdAtMs == existing().createdAtMs
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Update appearance / metadata / last message preview
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'description', 'avatarDataUrl', 'bannerPreset', 'bannerDataUrl',
+            'accentTone', 'lastMessageId', 'lastMessageFromId', 'lastMessageCiphertext',
+            'lastMessageIv', 'lastMessageSignature', 'lastMessageTimestamp',
+            'lastMessageExpiresAt', 'updatedAt'
+          ])
+          ||
+          // Action 2: Add member or self-leave
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
+            && (
+              incoming().memberIds.hasAll(existing().memberIds)
+              ||
+              (!(request.auth.uid in incoming().memberIds) && existing().memberIds.hasAll(incoming().memberIds))
+            )
+          )
+        );
+      allow delete: if isVerifiedUser()
+        && isValidShortId(groupId)
+        && existing().creatorId == request.auth.uid;
+
+      match /members/{memberId} {
+        allow get: if isVerifiedUser() && isValidShortId(groupId) && isValidShortId(memberId)
+          && (memberId == request.auth.uid || isParentGroupMember(groupId));
+        allow list: if isVerifiedUser() && existing().userId == request.auth.uid;
+        allow create: if isVerifiedUser()
+          && isValidShortId(groupId)
+          && isValidShortId(memberId)
+          && isValidGroupMemberEnvelope(incoming())
+          && incoming().groupId == groupId
+          && incoming().userId == memberId
+          && incoming().wrappedByUserId == request.auth.uid
+          && incoming().createdAt == request.time
+          && existsAfter(/databases/$(database)/documents/groups/$(groupId))
+          && request.auth.uid in getAfter(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+          && memberId in getAfter(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+          && (memberId == request.auth.uid || !isBlockedPair(request.auth.uid, memberId));
+        allow update: if false;
+        allow delete: if isVerifiedUser()
+          && isValidShortId(groupId)
+          && isValidShortId(memberId)
+          && (
+            memberId == request.auth.uid
+            || (exists(/databases/$(database)/documents/groups/$(groupId))
+              && get(/databases/$(database)/documents/groups/$(groupId)).data.creatorId == request.auth.uid)
+          );
+      }
+
+      match /messages/{messageId} {
+        allow get: if isVerifiedUser() && isValidShortId(groupId) && isValidShortId(messageId)
+          && isParentGroupMember(groupId);
+        allow list: if isVerifiedUser() && isParentGroupMember(groupId);
+        allow create: if isVerifiedUser()
+          && isValidShortId(groupId)
+          && isValidShortId(messageId)
+          && isValidGroupMessage(incoming())
+          && incoming().id == messageId
+          && incoming().groupId == groupId
+          && incoming().fromId == request.auth.uid
+          && incoming().createdAt == request.time
+          && isParentGroupMember(groupId);
+        allow update: if false;
+        allow delete: if isVerifiedUser()
+          && isValidShortId(groupId)
+          && isValidShortId(messageId)
+          && (
+            existing().fromId == request.auth.uid
+            || (exists(/databases/$(database)/documents/groups/$(groupId))
+              && get(/databases/$(database)/documents/groups/$(groupId)).data.creatorId == request.auth.uid)
+          );
+      }
+    }
+
+    // =========================================================================
+    // 6. Friends, Requests & Blocks
+    // =========================================================================
+    match /friendRequests/{requestId} {
+      allow get: if isVerifiedUser() && isValidId(requestId)
+        && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+      allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
+      allow create: if isVerifiedUser()
+        && isValidId(requestId)
+        && isValidFriendRequest(incoming())
+        && incoming().id == requestId
+        && requestId == (incoming().fromId + '__' + incoming().toId)
+        && incoming().fromId == request.auth.uid
+        && incoming().toId != request.auth.uid
+        && incoming().fromId in incoming().participantIds
+        && incoming().toId in incoming().participantIds
+        && incoming().createdAt == request.time
+        && !isBlockedPair(incoming().fromId, incoming().toId);
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(requestId)
+        && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+    }
+
+    match /friendships/{friendshipId} {
+      allow get: if isVerifiedUser() && isValidId(friendshipId)
+        && (existing().userA == request.auth.uid || existing().userB == request.auth.uid);
+      allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
+      allow create: if isVerifiedUser()
+        && isValidId(friendshipId)
+        && isValidFriendship(incoming())
+        && incoming().id == friendshipId
+        && incoming().userA != incoming().userB
+        && (incoming().userA == request.auth.uid || incoming().userB == request.auth.uid)
+        && incoming().userA in incoming().participantIds
+        && incoming().userB in incoming().participantIds
+        && incoming().createdAt == request.time
+        && !isBlockedPair(incoming().userA, incoming().userB)
+        && (
+          (incoming().userA == request.auth.uid
+            && exists(/databases/$(database)/documents/friendRequests/$(incoming().userB + '__' + request.auth.uid)))
+          ||
+          (incoming().userB == request.auth.uid
+            && exists(/databases/$(database)/documents/friendRequests/$(incoming().userA + '__' + request.auth.uid)))
+        );
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(friendshipId)
+        && (existing().userA == request.auth.uid || existing().userB == request.auth.uid);
+    }
+
+    match /blocks/{blockId} {
+      allow get: if isVerifiedUser() && isValidId(blockId)
+        && (existing().blockerId == request.auth.uid || existing().targetId == request.auth.uid);
+      allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
+      allow create: if isVerifiedUser()
+        && isValidId(blockId)
+        && isValidBlock(incoming())
+        && incoming().id == blockId
+        && blockId == (request.auth.uid + '__' + incoming().targetId)
+        && incoming().blockerId == request.auth.uid
+        && incoming().targetId != request.auth.uid
+        && incoming().blockerId in incoming().participantIds
+        && incoming().targetId in incoming().participantIds
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(blockId)
+        && existing().blockerId == request.auth.uid;
+    }
+  }
+}

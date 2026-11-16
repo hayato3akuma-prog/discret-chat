@@ -1,3 +1,5 @@
+import { getFreshFirebaseIdToken } from './firebase';
+
 export function isPushSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -25,6 +27,18 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+function uint8ArraysEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+async function resolveBearerToken(fallbackToken: string): Promise<string> {
+  return (await getFreshFirebaseIdToken()) || fallbackToken;
 }
 
 export async function ensureServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | null> {
@@ -84,20 +98,29 @@ export async function subscribeToWebPush(
     throw new Error('Impossible d’initialiser le Service Worker.');
   }
 
+  const activeToken = await resolveBearerToken(token);
   const keyRes = await fetch('/api/push/vapid-public-key', {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${activeToken}` },
   });
   if (!keyRes.ok) {
     throw new Error('Impossible de récupérer la clé publique VAPID du serveur.');
   }
   const { publicKey } = (await keyRes.json()) as { publicKey: string };
+  const expectedKeyBytes = urlBase64ToUint8Array(publicKey);
 
   let subscription = await registration.pushManager.getSubscription();
+  if (subscription?.options?.applicationServerKey) {
+    const currentKeyBytes = new Uint8Array(subscription.options.applicationServerKey);
+    if (!uint8ArraysEqual(currentKeyBytes, expectedKeyBytes)) {
+      await subscription.unsubscribe().catch(() => {});
+      subscription = null;
+    }
+  }
+
   if (!subscription) {
-    const applicationServerKey = urlBase64ToUint8Array(publicKey);
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: applicationServerKey.buffer as ArrayBuffer,
+      applicationServerKey: expectedKeyBytes.buffer as ArrayBuffer,
     });
   }
 
@@ -105,7 +128,7 @@ export async function subscribeToWebPush(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${activeToken}`,
     },
     body: JSON.stringify({
       subscription: subscription.toJSON(),
@@ -132,14 +155,33 @@ export async function syncPushSubscriptionIfGranted(
   try {
     const registration = await ensureServiceWorkerRegistration();
     if (!registration) return false;
-    const subscription = await registration.pushManager.getSubscription();
+    let subscription = await registration.pushManager.getSubscription();
     if (!subscription) return false;
+
+    const activeToken = await resolveBearerToken(token);
+    const keyRes = await fetch('/api/push/vapid-public-key', {
+      headers: { Authorization: `Bearer ${activeToken}` },
+    });
+    if (keyRes.ok) {
+      const { publicKey } = (await keyRes.json()) as { publicKey: string };
+      const expectedKeyBytes = urlBase64ToUint8Array(publicKey);
+      if (subscription.options?.applicationServerKey) {
+        const currentKeyBytes = new Uint8Array(subscription.options.applicationServerKey);
+        if (!uint8ArraysEqual(currentKeyBytes, expectedKeyBytes)) {
+          await subscription.unsubscribe().catch(() => {});
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: expectedKeyBytes.buffer as ArrayBuffer,
+          });
+        }
+      }
+    }
 
     const res = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${activeToken}`,
       },
       body: JSON.stringify({
         subscription: subscription.toJSON(),
@@ -160,11 +202,12 @@ export async function unsubscribeFromWebPush(token: string): Promise<void> {
     await subscription.unsubscribe().catch(() => {});
   }
 
+  const activeToken = await resolveBearerToken(token);
   await fetch('/api/push/unsubscribe', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${activeToken}`,
     },
     body: JSON.stringify({ endpoint }),
   });
@@ -175,11 +218,12 @@ export async function updatePushDiscreetPreference(
   discreetMode: boolean
 ): Promise<void> {
   const subscription = await getExistingPushSubscription();
+  const activeToken = await resolveBearerToken(token);
   await fetch('/api/push/preferences', {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${activeToken}`,
     },
     body: JSON.stringify({
       endpoint: subscription?.endpoint,
@@ -193,9 +237,10 @@ export async function sendTestWebPush(token: string): Promise<{
   failed: number;
   removed: number;
 }> {
+  const activeToken = await resolveBearerToken(token);
   const res = await fetch('/api/push/test', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${activeToken}` },
   });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
