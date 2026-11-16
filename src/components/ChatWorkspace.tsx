@@ -10,6 +10,7 @@ import {
   Copy,
   Eye,
   Lock,
+  Phone,
   Plus,
   Search,
   Send,
@@ -20,8 +21,10 @@ import {
   UserCheck,
   UserPlus,
   Users,
+  Video,
 } from 'lucide-react';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { type CallSignalPayload, useWebRTCCall } from '../hooks/useWebRTCCall';
 import { showLocalServiceWorkerNotification } from '../lib/pushNotifications';
 import {
   decryptAndVerifyGroupMessage,
@@ -46,6 +49,7 @@ import type {
   UnlockedSession,
 } from '../types';
 import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
+import { CallOverlay } from './CallOverlay';
 import { CreateGroupModal } from './CreateGroupModal';
 import { FriendsModal } from './FriendsModal';
 import { GroupAvatar } from './GroupAvatar';
@@ -192,6 +196,46 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  const sendCallSignal = useCallback((payload: Record<string, unknown>) => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return false;
+    wsRef.current.send(JSON.stringify(payload));
+    return true;
+  }, []);
+
+  const resolveCallUser = useCallback(
+    async (userId: string): Promise<PublicUser | null> => {
+      const fromConv = conversationsRef.current.find(
+        (c) => c.peer.id === userId
+      )?.peer;
+      if (fromConv) return fromConv;
+
+      try {
+        const res = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { user?: PublicUser };
+          return data.user ?? null;
+        }
+      } catch {
+        // Ignore
+      }
+      return null;
+    },
+    [session.token]
+  );
+
+  const call = useWebRTCCall({
+    currentUserId: session.user.id,
+    sendSignal: sendCallSignal,
+    resolveUser: resolveCallUser,
+  });
+
+  const handleCallSignalRef = useRef(call.handleCallSignal);
+  useEffect(() => {
+    handleCallSignalRef.current = call.handleCallSignal;
+  }, [call.handleCallSignal]);
 
   function handleChangeGlassIntensity(val: GlassIntensity) {
     setGlassIntensity(val);
@@ -592,7 +636,20 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             messageIds?: string[];
             readAt?: number;
             messageId?: string;
+            callId?: string;
+            caller?: PublicUser;
+            callType?: 'audio' | 'video';
+            sdp?: RTCSessionDescriptionInit;
+            candidate?: RTCIceCandidateInit;
+            reason?: string;
+            audioMuted?: boolean;
+            videoEnabled?: boolean;
           };
+
+          if (payload.type.startsWith('call:')) {
+            void handleCallSignalRef.current(payload as CallSignalPayload);
+            return;
+          }
 
           if (
             payload.type === 'friend:request' ||
@@ -1954,14 +2011,42 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </div>
 
                 {activePeer ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsSecurityModalOpen(true)}
-                    className="min-h-[40px] flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
-                  >
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                    <span className="hidden sm:inline">Vérifier E2EE</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {!isSelfSelected &&
+                      getRelationship(activePeer.id) !== 'blocked_by_me' &&
+                      getRelationship(activePeer.id) !== 'blocked_by_peer' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void call.startCall(activePeer, 'audio')}
+                            disabled={call.phase !== 'idle'}
+                            title="Appel audio en temps réel"
+                            aria-label="Appel audio en temps réel"
+                            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                          >
+                            <Phone className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void call.startCall(activePeer, 'video')}
+                            disabled={call.phase !== 'idle'}
+                            title="Appel vidéo en temps réel"
+                            aria-label="Appel vidéo en temps réel"
+                            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                          >
+                            <Video className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    <button
+                      type="button"
+                      onClick={() => setIsSecurityModalOpen(true)}
+                      className="min-h-[40px] flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                      <span className="hidden sm:inline">Vérifier E2EE</span>
+                    </button>
+                  </div>
                 ) : activeGroup ? (
                   <div className="flex items-center gap-1.5">
                     <button
@@ -2426,6 +2511,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             : undefined
         }
         onStartChat={handleSelectPeer}
+        onStartCall={(targetPeer, callType) => void call.startCall(targetPeer, callType)}
         onSendFriendRequest={handleSendFriendRequest}
         onAcceptFriendRequest={handleAcceptFriendRequest}
         onDeclineFriendRequest={handleDeclineFriendRequest}
@@ -2455,6 +2541,29 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         onDisable={push.disablePush}
         onToggleDiscreetMode={push.toggleDiscreetMode}
         onSendTest={push.sendTestPush}
+      />
+
+      <CallOverlay
+        phase={call.phase}
+        callType={call.callType}
+        peer={call.peer}
+        localStream={call.localStream}
+        remoteStream={call.remoteStream}
+        audioMuted={call.audioMuted}
+        videoEnabled={call.videoEnabled}
+        peerAudioMuted={call.peerAudioMuted}
+        peerVideoEnabled={call.peerVideoEnabled}
+        peerRinging={call.peerRinging}
+        isMinimized={call.isMinimized}
+        durationSec={call.durationSec}
+        notice={call.notice}
+        onDismissNotice={call.dismissNotice}
+        onToggleMinimize={() => call.setIsMinimized((v) => !v)}
+        onAccept={(withVideo) => void call.acceptIncomingCall(withVideo)}
+        onDecline={call.declineIncomingCall}
+        onHangup={call.hangupCall}
+        onToggleMute={call.toggleMute}
+        onToggleVideo={() => void call.toggleVideo()}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 {
   "name": "VOILE — Messagerie Privée Chiffrée",
   "description": "Application de messagerie privée minimaliste en noir glassmorphisme avec chiffrement de bout en bout et authentification par clé unique sans e-mail.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

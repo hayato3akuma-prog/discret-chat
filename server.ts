@@ -1855,6 +1855,13 @@ async function startServer() {
           toId?: string;
           groupId?: string;
           isTyping?: boolean;
+          callId?: string;
+          callType?: 'audio' | 'video';
+          sdp?: unknown;
+          candidate?: unknown;
+          reason?: string;
+          audioMuted?: boolean;
+          videoEnabled?: boolean;
         };
         if (data.type === 'typing:state') {
           if (typeof data.groupId === 'string') {
@@ -1878,6 +1885,82 @@ async function startServer() {
               isTyping: Boolean(data.isTyping),
             });
           }
+        } else if (
+          data.type === 'call:invite' &&
+          typeof data.toId === 'string' &&
+          typeof data.callId === 'string' &&
+          data.sdp
+        ) {
+          if (data.toId === userId) return;
+          if (isBlockedBetween(userId, data.toId)) {
+            sendToUser(userId, {
+              type: 'call:decline',
+              callId: data.callId,
+              fromId: data.toId,
+              reason: 'blocked',
+            });
+            return;
+          }
+          const target = state.users.find((u) => u.id === data.toId);
+          const caller = state.users.find((u) => u.id === userId);
+          if (!target || !caller) {
+            sendToUser(userId, {
+              type: 'call:hangup',
+              callId: data.callId,
+              fromId: data.toId,
+              reason: 'unavailable',
+            });
+            return;
+          }
+
+          const callType = data.callType === 'video' ? 'video' : 'audio';
+          sendToUser(data.toId, {
+            type: 'call:invite',
+            callId: data.callId,
+            fromId: userId,
+            caller: toPublicUser(caller),
+            callType,
+            sdp: data.sdp,
+          });
+
+          void sendPushToUser(data.toId, {
+            title:
+              callType === 'video'
+                ? `Appel vidéo entrant • ${caller.displayName}`
+                : `Appel audio entrant • ${caller.displayName}`,
+            body: 'Ouvrez DISCRET pour répondre en temps réel.',
+            discreetTitle: 'DISCRET',
+            discreetBody: 'Appel chiffré entrant',
+            tag: `call-${data.callId}`,
+            data: {
+              url: `/?open=dm&peerId=${encodeURIComponent(caller.id)}`,
+              type: 'dm',
+              peerId: caller.id,
+            },
+          });
+        } else if (
+          (data.type === 'call:ringing' ||
+            data.type === 'call:accept' ||
+            data.type === 'call:decline' ||
+            data.type === 'call:hangup' ||
+            data.type === 'call:ice' ||
+            data.type === 'call:renegotiate' ||
+            data.type === 'call:media-state') &&
+          typeof data.toId === 'string' &&
+          typeof data.callId === 'string'
+        ) {
+          if (isBlockedBetween(userId, data.toId)) return;
+          sendToUser(data.toId, {
+            type: data.type,
+            callId: data.callId,
+            fromId: userId,
+            callType: data.callType,
+            sdp: data.sdp,
+            candidate: data.candidate,
+            reason: data.reason,
+            audioMuted: data.audioMuted,
+            videoEnabled: data.videoEnabled,
+          });
         }
       } catch {
         // Ignore malformed WS payloads

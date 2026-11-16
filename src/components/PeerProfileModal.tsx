@@ -5,13 +5,16 @@ import {
   Clock,
   Copy,
   MessageSquare,
+  Phone,
   ShieldCheck,
   ShieldOff,
   UserCheck,
   UserMinus,
   UserPlus,
+  Video,
   X,
 } from 'lucide-react';
+import type { CallType } from '../hooks/useWebRTCCall';
 import type { PublicUser, RelationshipState } from '../types';
 import { ProfileBanner } from './ProfileBanner';
 import { UserAvatar } from './UserAvatar';
@@ -24,6 +27,7 @@ interface PeerProfileModalProps {
   relationship?: RelationshipState;
   onOpenSecurity?: () => void;
   onStartChat?: (peer: PublicUser) => void;
+  onStartCall?: (peer: PublicUser, callType: CallType) => void;
   onSendFriendRequest?: (userId: string) => Promise<void>;
   onAcceptFriendRequest?: (userId: string) => Promise<void>;
   onDeclineFriendRequest?: (userId: string) => Promise<void>;
@@ -40,6 +44,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
   relationship = 'none',
   onOpenSecurity,
   onStartChat,
+  onStartCall,
   onSendFriendRequest,
   onAcceptFriendRequest,
   onDeclineFriendRequest,
@@ -197,6 +202,37 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                   <span>Message</span>
                 </button>
               )}
+
+              {onStartCall &&
+                effectiveRelation !== 'blocked_by_me' &&
+                effectiveRelation !== 'blocked_by_peer' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onStartCall(peer, 'audio');
+                      }}
+                      title="Appel audio chiffré"
+                      className="min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.14] bg-white/[0.06] px-3 py-2 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                      <span>Appeler</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onStartCall(peer, 'video');
+                      }}
+                      title="Appel vidéo chiffré"
+                      className="min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.14] bg-white/[0.06] px-3 py-2 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                    >
+                      <Video className="h-3.5 w-3.5" />
+                      <span>Vidéo</span>
+                    </button>
+                  </>
+                )}
 
               {effectiveRelation === 'none' && onSendFriendRequest && (
                 <button
