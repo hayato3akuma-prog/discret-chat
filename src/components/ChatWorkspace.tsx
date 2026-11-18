@@ -297,6 +297,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const typingTimeoutRef = useRef<number | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const topDockRef = useRef<HTMLDivElement | null>(null);
+  const bottomDockRef = useRef<HTMLDivElement | null>(null);
+  const [topDockHeight, setTopDockHeight] = useState(76);
+  const [bottomDockHeight, setBottomDockHeight] = useState(84);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const chatMediaInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarSearchRef = useRef<HTMLInputElement | null>(null);
@@ -378,6 +382,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     tts.stop();
     onLockSession();
   }, [tts, onLockSession]);
+
+  useEffect(() => {
+    document.documentElement.dataset.glassIntensity = glassIntensity;
+  }, [glassIntensity]);
 
   function handleChangeGlassIntensity(val: GlassIntensity) {
     setGlassIntensity(val);
@@ -657,6 +665,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       : activeTarget?.kind === 'group'
         ? `group:${activeTarget.group.id}`
         : null;
+
+  useEffect(() => {
+    const topEl = topDockRef.current;
+    const bottomEl = bottomDockRef.current;
+    if (!topEl && !bottomEl) return;
+
+    const update = () => {
+      if (topEl) setTopDockHeight(Math.round(topEl.getBoundingClientRect().height));
+      if (bottomEl) setBottomDockHeight(Math.round(bottomEl.getBoundingClientRect().height));
+    };
+    update();
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    if (topEl) ro.observe(topEl);
+    if (bottomEl) ro.observe(bottomEl);
+    return () => ro.disconnect();
+  }, [activeTargetId, inChatSearchOpen, tts.autoRead, tts.speakingMessageId, replyingTo, pendingAttachment]);
 
   // Real-time Firestore subscription for active thread messages
   useEffect(() => {
@@ -1543,24 +1569,22 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   const messageTextSizeClass = getMessageTextSizeClass(messageTextSize);
 
-  const glassSurfaceClass =
-    glassIntensity === 'subtle'
-      ? 'bg-white/[0.015] backdrop-blur-md'
-      : glassIntensity === 'deep'
-        ? 'bg-white/[0.045] backdrop-blur-3xl'
-        : 'bg-white/[0.025] backdrop-blur-2xl';
-
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex">
-      {/* Subtle monochrome smoked glass depth */}
+    <div
+      data-glass-intensity={glassIntensity}
+      className="relative h-dvh w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex"
+    >
+      {/* Multi-layered obsidian liquid ambient field for genuine glass refraction */}
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/4 h-[460px] w-[620px] rounded-full bg-white/[0.03] blur-[140px]" />
-        <div className="absolute bottom-0 right-1/5 h-[380px] w-[480px] rounded-full bg-slate-300/[0.02] blur-[130px]" />
+        <div className="liquid-orb-a absolute -top-44 left-[12%] h-[520px] w-[680px] rounded-full bg-sky-200/[0.045] blur-[140px]" />
+        <div className="liquid-orb-b absolute top-[28%] right-[8%] h-[440px] w-[520px] rounded-full bg-indigo-300/[0.04] blur-[150px]" />
+        <div className="absolute -bottom-44 left-[28%] h-[420px] w-[560px] rounded-full bg-emerald-400/[0.035] blur-[150px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.03),transparent_60%)]" />
       </div>
 
-      {/* Left Sidebar: Conversations, Groups & Identity */}
+      {/* Left Sidebar: Floating Liquid Glass Panel on Desktop */}
       <aside
-        className={`relative z-10 flex h-full w-full md:w-[328px] lg:w-[356px] shrink-0 flex-col border-r border-white/[0.08] ${glassSurfaceClass} ${
+        className={`relative z-10 flex h-full w-full md:w-[332px] lg:w-[360px] shrink-0 flex-col glass-liquid md:my-2.5 md:ml-2.5 md:h-[calc(100dvh-1.25rem)] md:rounded-[26px] border-r md:border overflow-hidden ${
           mobileShowChat ? 'hidden md:flex' : 'flex'
         }`}
       >
@@ -1692,7 +1716,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.025] p-1 border border-white/[0.05]">
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/25 p-1 border border-white/[0.07] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]">
             {(
               [
                 { key: 'all', label: 'Tout' },
@@ -1704,9 +1728,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 key={t.key}
                 type="button"
                 onClick={() => setSidebarTab(t.key)}
-                className={`rounded-lg py-1.5 px-2 text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                className={`rounded-lg py-1.5 px-2 text-[11px] font-medium transition-all whitespace-nowrap cursor-pointer ${
                   sidebarTab === t.key
-                    ? 'bg-white/[0.11] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
+                    ? 'glass-control-active text-white'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
@@ -1762,10 +1786,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => handleSelectPeer(conv.peer)}
-                    className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors cursor-pointer border ${
+                    className={`w-full min-h-[60px] flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
                       isSelected
-                        ? 'bg-white/[0.075] border-white/[0.11] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]'
-                        : 'border-transparent hover:bg-white/[0.035]'
+                        ? 'glass-control-active'
+                        : 'border-transparent hover:bg-white/[0.045] hover:border-white/[0.07]'
                     }`}
                   >
                     <UserAvatar
@@ -1797,7 +1821,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                 : conv.peer.bio || conv.peer.handle)}
                         </p>
                         {conv.unreadCount > 0 && (
-                          <span className="shrink-0 font-mono text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-500/25 px-1.5 py-0.5 rounded-md tabular-nums">
+                          <span className="shrink-0 font-mono text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-400/30 px-1.5 py-0.5 rounded-md tabular-nums">
                             {conv.unreadCount}
                           </span>
                         )}
@@ -1815,10 +1839,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   key={item.id}
                   type="button"
                   onClick={() => handleSelectGroup(sg.group)}
-                  className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors cursor-pointer border ${
+                  className={`w-full min-h-[60px] flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
                     isSelected
-                      ? 'bg-white/[0.075] border-white/[0.11] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]'
-                      : 'border-transparent hover:bg-white/[0.035]'
+                      ? 'glass-control-active'
+                      : 'border-transparent hover:bg-white/[0.045] hover:border-white/[0.07]'
                   }`}
                 >
                   <GroupAvatar group={sg.group} size="md" />
@@ -1850,12 +1874,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         </div>
 
         {/* Bottom quick actions + Desktop/Phone App Installer */}
-        <div className="border-t border-white/[0.06] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
+        <div className="border-t border-white/[0.07] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
           <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               onClick={() => setIsContactModalOpen(true)}
-              className="min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.025] py-2 px-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+              className="glass-control min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl py-2 px-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer whitespace-nowrap"
             >
               <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               <span>Contact</span>
@@ -1863,12 +1887,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => setIsFriendsModalOpen(true)}
-              className="relative min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.025] py-2 px-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+              className="glass-control relative min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl py-2 px-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer whitespace-nowrap"
             >
               <UserPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               <span>Amis</span>
               {friendsSnapshot.incoming.length > 0 && (
-                <span className="font-mono text-[10px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-500/25 px-1.5 rounded-md tabular-nums">
+                <span className="font-mono text-[10px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-400/30 px-1.5 rounded-md tabular-nums">
                   {friendsSnapshot.incoming.length}
                 </span>
               )}
@@ -1876,7 +1900,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => setIsCreateGroupOpen(true)}
-              className="min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.025] py-2 px-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+              className="glass-control min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl py-2 px-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer whitespace-nowrap"
             >
               <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               <span>Groupe</span>
@@ -1888,16 +1912,38 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
       {/* Right Chat Viewport */}
       <main
-        className={`relative z-10 flex-1 flex flex-col h-full min-w-0 ${
+        className={`relative z-10 flex-1 flex flex-col h-full min-w-0 overflow-hidden ${
           !mobileShowChat ? 'hidden md:flex' : 'flex'
         }`}
       >
+        {/* Whisper-soft blurred banner atmosphere behind active thread for optical glass refraction */}
+        {(activePeer || activeGroup) && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 overflow-hidden opacity-[0.08]"
+          >
+            <ProfileBanner
+              user={
+                activePeer ?? {
+                  displayName: activeGroup!.name,
+                  bannerPreset: activeGroup!.bannerPreset,
+                  bannerDataUrl: activeGroup!.bannerDataUrl ?? null,
+                }
+              }
+              className="h-full w-full scale-110 blur-3xl saturate-150"
+              scrimClassName="bg-gradient-to-b from-[#050507]/30 via-[#050507]/60 to-[#050507]"
+            />
+          </div>
+        )}
+
         {activeTarget ? (
           <>
-            {/* Conversation Header */}
-            <header
-              className={`flex items-center justify-between gap-2 sm:gap-3 border-b border-white/[0.06] ${glassSurfaceClass} px-2.5 sm:px-6 py-2.5 sm:py-3`}
+            {/* Floating Liquid Glass Top Dock (Header + Optional Search / TTS / Mobile Ephemeral Bar) */}
+            <div
+              ref={topDockRef}
+              className="pointer-events-none absolute top-0 left-0 right-0 z-20 px-2 pt-2 sm:px-3.5 sm:pt-2.5 space-y-1.5"
             >
+              <header className="pointer-events-auto glass-liquid rounded-2xl flex items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-5 py-2 sm:py-2.5">
               <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <button
                   type="button"
@@ -1996,17 +2042,17 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
               {/* Right Controls: Ephemeral Timer & Minimalist Action Cluster */}
               <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
-                <div className="hidden sm:flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.025] p-1 mr-1">
+                <div className="hidden sm:flex items-center gap-1 rounded-xl border border-white/[0.08] bg-black/25 p-1 mr-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]">
                   <Clock className="ml-2 mr-1 h-3.5 w-3.5 text-zinc-500" />
                   {EPHEMERAL_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
                       type="button"
                       onClick={() => setEphemeralDuration(opt.value)}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                      className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all whitespace-nowrap cursor-pointer ${
                         ephemeralDuration === opt.value
-                          ? 'bg-white/[0.12] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
-                          : 'text-zinc-400 hover:text-zinc-200'
+                          ? 'glass-control-active text-white'
+                          : 'text-zinc-400 hover:text-zinc-200 border border-transparent'
                       }`}
                     >
                       {opt.label}
@@ -2100,7 +2146,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       onClick={() => setIsSecurityModalOpen(true)}
                       title="Vérifier le chiffrement E2EE"
                       aria-label="Vérifier le chiffrement E2EE"
-                      className="h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] sm:px-3 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] transition-colors whitespace-nowrap cursor-pointer ml-0.5"
+                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer ml-0.5"
                     >
                       <ShieldCheck className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
                       <span className="hidden sm:inline">Vérifier E2EE</span>
@@ -2124,7 +2170,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsGroupInfoOpen(true)}
-                      className="h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] sm:px-3 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] transition-colors whitespace-nowrap cursor-pointer ml-0.5"
+                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer ml-0.5"
                     >
                       <Users className="h-4 w-4 text-zinc-200" strokeWidth={1.75} />
                       <span className="hidden sm:inline">Membres</span>
@@ -2136,7 +2182,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
             {/* Local Web Speech Playback & Speed Control Bar */}
             {tts.supported && (tts.speakingMessageId !== null || tts.autoRead) && (
-              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] bg-emerald-500/[0.04] px-4 sm:px-6 py-2 text-xs">
+              <div className="pointer-events-auto glass-liquid rounded-xl flex items-center justify-between gap-3 px-3.5 sm:px-5 py-2 text-xs">
                 <div className="flex items-center gap-2 min-w-0 text-emerald-300">
                   <Volume2
                     className={`h-3.5 w-3.5 shrink-0 ${
@@ -2176,8 +2222,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             )}
 
             {/* Mobile Ephemeral Selector Bar */}
-            <div className="sm:hidden flex items-center justify-between gap-2 border-b border-white/[0.05] bg-white/[0.01] px-3 py-1.5">
-              <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 whitespace-nowrap shrink-0">
+            <div className="pointer-events-auto sm:hidden glass-surface rounded-xl flex items-center justify-between gap-2 px-3 py-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400 whitespace-nowrap shrink-0">
                 <Clock className="h-3 w-3 shrink-0" />
                 <span>Éphémère</span>
               </span>
@@ -2189,7 +2235,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     onClick={() => setEphemeralDuration(opt.value)}
                     className={`min-h-[28px] rounded-lg px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
                       ephemeralDuration === opt.value
-                        ? 'bg-white/[0.12] text-white border border-white/[0.1]'
+                        ? 'glass-control-active text-white'
                         : 'text-zinc-400 hover:text-white border border-transparent'
                     }`}
                   >
@@ -2207,7 +2253,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
             {/* In-Thread Encrypted Message Search Bar */}
             {inChatSearchOpen && (
-              <div className="flex items-center gap-2 border-b border-white/[0.07] bg-white/[0.025] px-3 sm:px-6 py-2">
+              <div className="pointer-events-auto glass-liquid rounded-xl flex items-center gap-2 px-3.5 sm:px-5 py-2">
                 <Search className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
                 <input
                   ref={inChatSearchInputRef}
@@ -2282,8 +2328,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </button>
               </div>
             )}
+            </div>
 
-            {/* Messages Stream */}
+            {/* Messages Stream (glides smoothly behind the floating Liquid Glass header & composer docks) */}
             <div className="relative flex-1 min-h-0 flex flex-col">
               <div
                 ref={messagesContainerRef}
@@ -2299,7 +2346,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     setUnreadBelowCount(0);
                   }
                 }}
-                className="flex-1 overflow-y-auto px-4 sm:px-6 py-5"
+                style={{
+                  paddingTop: topDockHeight + 14,
+                  paddingBottom: bottomDockHeight + 16,
+                }}
+                className="flex-1 overflow-y-auto px-4 sm:px-7"
               >
                 {loadingMessages ? (
                   <div className="flex h-full items-center justify-center">
@@ -2661,7 +2712,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   </div>
                 )}
 
-                <div ref={messagesEndRef} />
+                <div
+                  ref={messagesEndRef}
+                  style={{ scrollMarginBottom: bottomDockHeight + 16 }}
+                />
               </div>
 
               {showScrollToBottom && (
@@ -2673,8 +2727,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     setShowScrollToBottom(false);
                     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
                   }}
+                  style={{ bottom: bottomDockHeight + 12 }}
                   aria-label="Descendre aux derniers messages"
-                  className="absolute bottom-4 right-4 sm:right-6 z-20 glass-elevated flex items-center gap-1.5 rounded-full border border-white/[0.14] px-3 py-2 text-xs font-medium text-white shadow-xl hover:bg-white/[0.12] transition-colors cursor-pointer"
+                  className="absolute right-4 sm:right-6 z-20 glass-liquid flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-white hover:bg-white/[0.14] transition-all cursor-pointer active:scale-95"
                 >
                   <ArrowDown className="h-3.5 w-3.5" />
                   {unreadBelowCount > 0 && (
@@ -2686,10 +2741,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               )}
             </div>
 
-            {/* Composer */}
-            <footer
-              className={`border-t border-white/[0.06] ${glassSurfaceClass} px-3 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]`}
+            {/* Floating Liquid Glass Composer Dock */}
+            <div
+              ref={bottomDockRef}
+              className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3.5 sm:pb-3"
             >
+              <footer className="pointer-events-auto glass-liquid rounded-[22px] sm:rounded-[24px] px-2.5 sm:px-4 py-2.5">
               {activePeer &&
               !isSelfSelected &&
               (getRelationship(activePeer.id) === 'blocked_by_me' ||
@@ -2857,7 +2914,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         }
                       }}
                       aria-label="Envoyer le message"
-                      className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-4 sm:px-5 text-sm font-medium text-zinc-950 transition-all hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                      className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-white to-zinc-200 px-4 sm:px-5 text-sm font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff,0_8px_20px_-6px_rgba(255,255,255,0.28)] transition-all hover:brightness-95 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                     >
                       <Send className="h-4 w-4" />
                       <span className="hidden sm:inline">Envoyer</span>
@@ -2865,7 +2922,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   </form>
                 </>
               )}
-            </footer>
+              </footer>
+            </div>
           </>
         ) : (
           <div className="flex h-full items-center justify-center p-6">

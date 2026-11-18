@@ -441,7 +441,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           <div
             role="tablist"
             aria-label="Sections du profil"
-            className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.025] p-1 border border-white/[0.055]"
+            className="grid grid-cols-3 gap-1 rounded-xl bg-black/25 p-1 border border-white/[0.07] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
           >
             {(
               [
@@ -459,10 +459,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   role="tab"
                   aria-selected={active}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-medium transition-all whitespace-nowrap cursor-pointer border ${
                     active
-                      ? 'bg-white/[0.11] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
-                      : 'text-zinc-400 hover:text-zinc-200'
+                      ? 'glass-control-active text-white'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
@@ -715,27 +715,34 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     Images & GIF animés pris en charge
                   </span>
                 </div>
-                <div className="rounded-2xl border border-white/[0.06] bg-[#07070a]/75 p-3.5 space-y-2.5">
-                  <div className="flex justify-start">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.1] bg-[#06070b] p-4 space-y-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]">
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0"
+                  >
+                    <div className="absolute -top-10 -left-8 h-32 w-44 rounded-full bg-sky-300/[0.14] blur-2xl" />
+                    <div className="absolute -bottom-10 -right-8 h-32 w-44 rounded-full bg-emerald-400/[0.12] blur-2xl" />
+                  </div>
+                  <div className="relative z-10 flex justify-start">
                     <div
                       className={`max-w-[82%] px-3.5 py-2 transition-all ${previewReceivedBubbleClass}`}
                     >
                       <p className={previewTextClass}>
                         On garde le canal discret ?
                       </p>
-                      <p className="mt-0.5 text-[10px] font-mono text-zinc-500 tabular-nums">
+                      <p className="mt-0.5 text-[10px] font-mono text-zinc-400 tabular-nums">
                         22:17
                       </p>
                     </div>
                   </div>
-                  <div className="flex justify-end">
+                  <div className="relative z-10 flex justify-end">
                     <div
                       className={`max-w-[82%] px-3.5 py-2 transition-all ${previewSentBubbleClass}`}
                     >
                       <p className={previewTextClass}>
                         Oui, tout est chiffré de bout en bout.
                       </p>
-                      <p className="mt-0.5 text-[10px] font-mono text-zinc-300/80 text-right tabular-nums">
+                      <p className="mt-0.5 text-[10px] font-mono text-zinc-200/85 text-right tabular-nums">
                         22:18
                       </p>
                     </div>
@@ -951,7 +958,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 <p className="text-xs font-medium text-zinc-300 mb-2">
                   Intensité du verre dépoli sur cet appareil
                 </p>
-                <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-white/[0.025] p-1 border border-white/[0.06]">
+                <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/25 p-1 border border-white/[0.07] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]">
                   {GLASS_OPTIONS.map((opt) => {
                     const active = glassIntensity === opt.key;
                     return (
@@ -959,10 +966,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         key={opt.key}
                         type="button"
                         onClick={() => onChangeGlassIntensity(opt.key)}
-                        className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors cursor-pointer ${
+                        className={`rounded-lg py-2 px-3 text-xs font-medium transition-all cursor-pointer border ${
                           active
-                            ? 'bg-white/[0.12] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
-                            : 'text-zinc-400 hover:text-zinc-200'
+                            ? 'glass-control-active text-white'
+                            : 'border-transparent text-zinc-400 hover:text-zinc-200'
                         }`}
                       >
                         {opt.label}

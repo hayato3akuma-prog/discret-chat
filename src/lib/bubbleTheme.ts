@@ -63,22 +63,22 @@ const SENT_STYLE_TONE_CLASSES: Record<
 > = {
   glass: {
     platinum:
-      'bg-white/[0.11] border border-white/[0.16] text-white backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]',
+      'bg-gradient-to-br from-white/[0.18] via-white/[0.09] to-white/[0.045] border border-white/[0.22] text-white backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.28),inset_0_-1px_0_0_rgba(255,255,255,0.05),0_10px_28px_-10px_rgba(0,0,0,0.62)]',
     emerald:
-      'bg-emerald-500/[0.14] border border-emerald-400/[0.22] text-white backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]',
+      'bg-gradient-to-br from-emerald-400/[0.22] via-emerald-500/[0.12] to-teal-500/[0.06] border border-emerald-300/[0.28] text-white backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_1px_0_0_rgba(209,250,229,0.32),inset_0_-1px_0_0_rgba(16,185,129,0.08),0_10px_28px_-10px_rgba(0,0,0,0.62)]',
     slate:
-      'bg-sky-400/[0.12] border border-sky-300/[0.20] text-white backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]',
+      'bg-gradient-to-br from-sky-300/[0.2] via-sky-400/[0.11] to-indigo-400/[0.055] border border-sky-200/[0.26] text-white backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_1px_0_0_rgba(224,242,254,0.3),inset_0_-1px_0_0_rgba(56,189,248,0.08),0_10px_28px_-10px_rgba(0,0,0,0.62)]',
     amber:
-      'bg-amber-400/[0.12] border border-amber-300/[0.20] text-white backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]',
+      'bg-gradient-to-br from-amber-300/[0.2] via-amber-400/[0.11] to-orange-400/[0.055] border border-amber-200/[0.26] text-white backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_1px_0_0_rgba(254,243,199,0.3),inset_0_-1px_0_0_rgba(245,158,11,0.08),0_10px_28px_-10px_rgba(0,0,0,0.62)]',
     crimson:
-      'bg-rose-400/[0.12] border border-rose-300/[0.20] text-white backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]',
+      'bg-gradient-to-br from-rose-300/[0.2] via-rose-400/[0.11] to-pink-500/[0.055] border border-rose-200/[0.26] text-white backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_1px_0_0_rgba(255,228,230,0.3),inset_0_-1px_0_0_rgba(244,63,94,0.08),0_10px_28px_-10px_rgba(0,0,0,0.62)]',
   },
   solid: {
-    platinum: 'bg-zinc-800/95 border border-zinc-700/70 text-white',
-    emerald: 'bg-emerald-950/90 border border-emerald-700/50 text-emerald-50',
-    slate: 'bg-sky-950/90 border border-sky-700/50 text-sky-50',
-    amber: 'bg-amber-950/90 border border-amber-700/50 text-amber-50',
-    crimson: 'bg-rose-950/90 border border-rose-700/50 text-rose-50',
+    platinum: 'bg-zinc-800/95 border border-zinc-700/70 text-white shadow-sm',
+    emerald: 'bg-emerald-950/90 border border-emerald-700/50 text-emerald-50 shadow-sm',
+    slate: 'bg-sky-950/90 border border-sky-700/50 text-sky-50 shadow-sm',
+    amber: 'bg-amber-950/90 border border-amber-700/50 text-amber-50 shadow-sm',
+    crimson: 'bg-rose-950/90 border border-rose-700/50 text-rose-50 shadow-sm',
   },
   outline: {
     platinum: 'bg-[#09090d]/85 border border-white/30 text-white',
@@ -89,25 +89,25 @@ const SENT_STYLE_TONE_CLASSES: Record<
   },
   elevated: {
     platinum:
-      'bg-gradient-to-b from-white/[0.16] to-white/[0.08] border border-white/[0.22] text-white backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.14)]',
+      'bg-gradient-to-b from-white/[0.22] via-white/[0.11] to-white/[0.06] border border-white/[0.28] text-white backdrop-blur-2xl backdrop-saturate-[200%] shadow-[0_14px_34px_-10px_rgba(0,0,0,0.72),inset_0_1.5px_0_0_rgba(255,255,255,0.36),inset_0_-1px_0_0_rgba(255,255,255,0.07)]',
     emerald:
-      'bg-gradient-to-b from-emerald-400/[0.22] to-emerald-500/[0.1] border border-emerald-400/[0.3] text-white backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.12)]',
+      'bg-gradient-to-b from-emerald-300/[0.28] via-emerald-500/[0.15] to-emerald-600/[0.07] border border-emerald-300/[0.34] text-white backdrop-blur-2xl backdrop-saturate-[200%] shadow-[0_14px_34px_-10px_rgba(0,0,0,0.72),inset_0_1.5px_0_0_rgba(209,250,229,0.38),inset_0_-1px_0_0_rgba(16,185,129,0.1)]',
     slate:
-      'bg-gradient-to-b from-sky-300/[0.19] to-sky-400/[0.09] border border-sky-300/[0.28] text-white backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.12)]',
+      'bg-gradient-to-b from-sky-200/[0.25] via-sky-400/[0.14] to-sky-500/[0.065] border border-sky-200/[0.32] text-white backdrop-blur-2xl backdrop-saturate-[200%] shadow-[0_14px_34px_-10px_rgba(0,0,0,0.72),inset_0_1.5px_0_0_rgba(224,242,254,0.36),inset_0_-1px_0_0_rgba(56,189,248,0.1)]',
     amber:
-      'bg-gradient-to-b from-amber-300/[0.19] to-amber-400/[0.09] border border-amber-300/[0.28] text-white backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.12)]',
+      'bg-gradient-to-b from-amber-200/[0.25] via-amber-400/[0.14] to-amber-500/[0.065] border border-amber-200/[0.32] text-white backdrop-blur-2xl backdrop-saturate-[200%] shadow-[0_14px_34px_-10px_rgba(0,0,0,0.72),inset_0_1.5px_0_0_rgba(254,243,199,0.36),inset_0_-1px_0_0_rgba(245,158,11,0.1)]',
     crimson:
-      'bg-gradient-to-b from-rose-300/[0.19] to-rose-400/[0.09] border border-rose-300/[0.28] text-white backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.12)]',
+      'bg-gradient-to-b from-rose-200/[0.25] via-rose-400/[0.14] to-rose-500/[0.065] border border-rose-200/[0.32] text-white backdrop-blur-2xl backdrop-saturate-[200%] shadow-[0_14px_34px_-10px_rgba(0,0,0,0.72),inset_0_1.5px_0_0_rgba(255,228,230,0.36),inset_0_-1px_0_0_rgba(244,63,94,0.1)]',
   },
 };
 
 const RECEIVED_STYLE_CLASSES: Record<BubbleStyleKey, string> = {
   glass:
-    'bg-white/[0.035] border border-white/[0.065] text-zinc-100 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]',
-  solid: 'bg-[#14141a] border border-white/[0.06] text-zinc-100',
+    'bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-white/[0.02] border border-white/[0.12] text-zinc-100 backdrop-blur-2xl backdrop-saturate-[175%] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.14),inset_0_-1px_0_0_rgba(255,255,255,0.02),0_10px_26px_-12px_rgba(0,0,0,0.58)]',
+  solid: 'bg-[#14141a] border border-white/[0.07] text-zinc-100 shadow-sm',
   outline: 'bg-[#08080c]/75 border border-white/[0.18] text-zinc-100',
   elevated:
-    'bg-gradient-to-b from-white/[0.065] to-white/[0.025] border border-white/[0.1] text-zinc-100 backdrop-blur-xl shadow-[0_6px_18px_rgba(0,0,0,0.35),inset_0_1px_0_0_rgba(255,255,255,0.06)]',
+    'bg-gradient-to-b from-white/[0.11] via-white/[0.055] to-white/[0.028] border border-white/[0.16] text-zinc-100 backdrop-blur-2xl backdrop-saturate-[190%] shadow-[0_12px_28px_-10px_rgba(0,0,0,0.65),inset_0_1.5px_0_0_rgba(255,255,255,0.2),inset_0_-1px_0_0_rgba(255,255,255,0.03)]',
 };
 
 export function getBubbleClassNames(params: {

@@ -151,10 +151,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div
       id="top"
-      className="min-h-screen w-full bg-[#050507] text-[#F4F4F5] flex flex-col"
+      className="relative min-h-screen w-full overflow-x-hidden bg-[#050507] text-[#F4F4F5] flex flex-col"
     >
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="liquid-orb-a absolute -top-52 left-[18%] h-[560px] w-[720px] rounded-full bg-sky-200/[0.045] blur-[150px]" />
+        <div className="liquid-orb-b absolute top-[35%] right-[10%] h-[480px] w-[580px] rounded-full bg-emerald-400/[0.035] blur-[150px]" />
+      </div>
+
       {/* Top Bar Contract: exactly 3 zones (Brand — 4 Nav Links — 1 Primary Action) */}
-      <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-[#050507]/90 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-white/[0.1] bg-[#07070c]/75 backdrop-blur-2xl backdrop-saturate-[180%] shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.04)]">
         <div className="mx-auto max-w-[1200px] h-16 px-4 sm:px-8 flex items-center justify-between gap-8">
           <a
             href="#top"
@@ -304,7 +309,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           {/* 4-Column Quantitative Proof Strip */}
-          <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 border border-white/[0.08] rounded-2xl divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08] bg-white/[0.02]">
+          <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 glass-surface rounded-2xl divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
             <div className="p-5 sm:p-6">
               <p className="font-mono text-xl sm:text-2xl font-semibold text-white tabular-nums">
                 120 bits
@@ -391,7 +396,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 return (
                   <article
                     key={item.number}
-                    className={`rounded-2xl border border-white/[0.08] bg-white/[0.025] p-6 sm:p-7 flex flex-col justify-between transition-colors hover:border-white/[0.16] ${
+                    className={`glass-surface rounded-2xl p-6 sm:p-7 flex flex-col justify-between transition-all hover:border-white/[0.2] ${
                       useWide ? 'lg:col-span-2' : 'lg:col-span-1'
                     }`}
                   >
@@ -486,7 +491,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* 3-Step Quick Onboarding Strip */}
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8 mt-12">
-            <div className="grid grid-cols-1 md:grid-cols-3 rounded-2xl border border-white/[0.08] bg-white/[0.02] divide-y md:divide-y-0 md:divide-x divide-white/[0.08]">
+            <div className="grid grid-cols-1 md:grid-cols-3 glass-surface rounded-2xl divide-y md:divide-y-0 md:divide-x divide-white/[0.08]">
               <div className="p-6">
                 <span className="font-mono text-xs text-emerald-400 tabular-nums">
                   Étape 1
@@ -592,7 +597,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* Final Action Block */}
         <section className="border-t border-white/[0.07] py-16 sm:py-20">
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8">
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.03] p-8 sm:p-12 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
+            <div className="glass-liquid rounded-2xl p-8 sm:p-12 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
               <div className="max-w-2xl">
                 <h2 className="font-[family-name:var(--font-display)] text-2xl sm:text-3xl font-semibold tracking-tight text-white text-balance">
                   Prêt à communiquer sans laisser de trace en clair ?

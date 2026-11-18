@@ -497,20 +497,20 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 }
               : undefined
           }
-          className={`fixed z-50 glass-elevated rounded-2xl border bg-[#0b0b10]/92 backdrop-blur-2xl overflow-hidden w-[276px] sm:w-[308px] touch-none select-none ${
+          className={`fixed z-50 glass-liquid rounded-2xl overflow-hidden w-[276px] sm:w-[308px] touch-none select-none ${
             miniPos ? 'top-0 left-0' : 'bottom-20 sm:bottom-5 right-3 sm:right-5'
           } ${
             isDraggingMini
-              ? 'cursor-grabbing border-white/[0.24] shadow-[0_26px_64px_-12px_rgba(0,0,0,0.9)]'
-              : 'cursor-grab border-white/[0.12] shadow-[0_20px_48px_-12px_rgba(0,0,0,0.82)]'
+              ? 'cursor-grabbing border-white/[0.3] shadow-[0_28px_68px_-12px_rgba(0,0,0,0.92)]'
+              : 'cursor-grab border-white/[0.16] shadow-[0_22px_52px_-12px_rgba(0,0,0,0.85)]'
           }`}
         >
           {/* Minimalist drag handle */}
           <div
             title="Déplacer la bulle d’appel"
-            className="flex items-center justify-center py-1.5 border-b border-white/[0.05] bg-white/[0.02]"
+            className="flex items-center justify-center py-1.5 border-b border-white/[0.06] bg-white/[0.03]"
           >
-            <span className="h-1 w-8 rounded-full bg-white/20" />
+            <span className="h-1 w-8 rounded-full bg-white/25" />
           </div>
 
           {hasRemoteVideoTrack && (
@@ -635,9 +635,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         aria-modal="true"
         aria-label="Appel temps réel DISCRET"
       >
-        <div className="glass-elevated relative w-full h-dvh sm:h-[86dvh] sm:max-h-[720px] sm:max-w-4xl sm:rounded-3xl overflow-hidden border-0 sm:border sm:border-white/[0.1] bg-[#07070b] flex flex-col shadow-2xl">
+        <div className="glass-elevated relative w-full h-dvh sm:h-[86dvh] sm:max-h-[720px] sm:max-w-4xl sm:rounded-3xl overflow-hidden border-0 sm:border sm:border-white/[0.14] bg-[#07070b] flex flex-col shadow-2xl">
           {/* Top Call Bar */}
-          <div className="relative z-20 flex items-center justify-between gap-2 px-4 sm:px-5 py-3.5 border-b border-white/[0.07] bg-black/55 backdrop-blur-xl">
+          <div className="relative z-20 flex items-center justify-between gap-2 px-4 sm:px-5 py-3.5 border-b border-white/[0.08] glass-liquid rounded-none">
             <div className="flex items-center gap-2.5 min-w-0">
               <button
                 type="button"
@@ -917,7 +917,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           </div>
 
           {/* Bottom Controls */}
-          <div className="relative z-20 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 px-4 sm:px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-white/[0.07] bg-black/65 backdrop-blur-xl">
+          <div className="relative z-20 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 px-4 sm:px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-white/[0.08] glass-liquid rounded-none">
             <button
               type="button"
               onClick={onToggleMute}

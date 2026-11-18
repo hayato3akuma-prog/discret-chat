@@ -291,13 +291,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex flex-col justify-between px-4 py-8 sm:px-8">
-      {/* Subtle monochrome smoked glass ambient illumination */}
+      {/* Multi-layered obsidian liquid ambient field */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 overflow-hidden"
       >
-        <div className="absolute -top-48 left-1/2 -translate-x-1/2 h-[520px] w-[780px] rounded-full bg-white/[0.035] blur-[140px]" />
-        <div className="absolute -bottom-56 right-1/4 h-[420px] w-[520px] rounded-full bg-slate-300/[0.025] blur-[130px]" />
+        <div className="liquid-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[540px] w-[780px] rounded-full bg-sky-200/[0.05] blur-[140px]" />
+        <div className="liquid-orb-b absolute -bottom-52 right-1/4 h-[440px] w-[540px] rounded-full bg-emerald-400/[0.04] blur-[140px]" />
+        <div className="absolute top-1/3 left-1/5 h-[360px] w-[420px] rounded-full bg-indigo-300/[0.035] blur-[140px]" />
       </div>
 
       {/* Minimal top wordmark */}
@@ -348,13 +349,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           </p>
         </div>
 
-        <div className="glass-elevated rounded-2xl p-6 sm:p-7">
+        <div className="glass-liquid rounded-3xl p-6 sm:p-7">
           {!generatedKey ? (
             <>
               <div
                 role="tablist"
                 aria-label="Mode d'accès"
-                className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-white/[0.03] p-1 border border-white/[0.055]"
+                className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-black/25 p-1 border border-white/[0.07] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
               >
                 <button
                   type="button"
@@ -364,10 +365,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                     setTab('login');
                     setLoginError(null);
                   }}
-                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-all whitespace-nowrap cursor-pointer border ${
                     tab === 'login'
-                      ? 'bg-white/[0.11] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
-                      : 'text-zinc-400 hover:text-zinc-200'
+                      ? 'glass-control-active text-white'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   Se connecter
@@ -380,10 +381,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                     setTab('create');
                     setCreateError(null);
                   }}
-                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  className={`rounded-lg py-2 px-3 text-xs font-medium transition-all whitespace-nowrap cursor-pointer border ${
                     tab === 'create'
-                      ? 'bg-white/[0.11] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
-                      : 'text-zinc-400 hover:text-zinc-200'
+                      ? 'glass-control-active text-white'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   Créer ma clé
