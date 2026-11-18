@@ -109,6 +109,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'ownerUid', 'handle', 'displayName', 'bio', 'biography',
           'avatarDataUrl', 'avatarIcon', 'accentTone', 'bannerPreset', 'bannerDataUrl',
+          'bubbleShape', 'bubbleStyle',
           'ecdhPublicJwk', 'ecdsaPublicJwk', 'fingerprint', 'createdAtMs', 'createdAt', 'updatedAt'
         ])
         && isValidShortId(data.id)
@@ -119,11 +120,13 @@ service cloud.firestore {
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 32
         && data.bio is string && data.bio.size() <= 80
         && data.biography is string && data.biography.size() <= 400
-        && isNullableString(data.avatarDataUrl, 160000)
+        && isNullableString(data.avatarDataUrl, 300000)
         && data.avatarIcon in ['initials', 'shield', 'moon', 'compass', 'eye', 'feather', 'diamond']
         && data.accentTone in ['platinum', 'emerald', 'slate', 'amber', 'crimson']
         && data.bannerPreset in ['none', 'obsidian', 'monolith', 'eclipse', 'emerald', 'custom']
-        && isNullableString(data.bannerDataUrl, 260000)
+        && isNullableString(data.bannerDataUrl, 380000)
+        && (!('bubbleShape' in data) || data.bubbleShape in ['rounded', 'pill', 'sharp', 'editorial'])
+        && (!('bubbleStyle' in data) || data.bubbleStyle in ['glass', 'solid', 'outline', 'elevated'])
         && isValidJwk(data.ecdhPublicJwk)
         && isValidJwk(data.ecdsaPublicJwk)
         && data.fingerprint is string && data.fingerprint.size() >= 8 && data.fingerprint.size() <= 64
@@ -193,7 +196,7 @@ service cloud.firestore {
         && data.userA in data.participantIds
         && data.userB in data.participantIds
         && isNullableString(data.lastMessageId, 128)
-        && isNullableString(data.lastMessageCiphertext, 65536)
+        && isNullableString(data.lastMessageCiphertext, 320000)
         && isNullableString(data.lastMessageIv, 128)
         && isNullableString(data.lastMessageSignature, 512)
         && isNullableString(data.lastMessageFromId, 128)
@@ -218,7 +221,7 @@ service cloud.firestore {
         && isValidId(data.conversationId)
         && isValidShortId(data.fromId)
         && isValidShortId(data.toId)
-        && data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 65536
+        && data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 320000
         && data.iv is string && data.iv.size() >= 1 && data.iv.size() <= 128
         && data.signature is string && data.signature.size() >= 1 && data.signature.size() <= 512
         && data.timestamp is number
@@ -245,16 +248,16 @@ service cloud.firestore {
         && isValidShortId(data.id)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 40
         && data.description is string && data.description.size() <= 100
-        && isNullableString(data.avatarDataUrl, 160000)
+        && isNullableString(data.avatarDataUrl, 300000)
         && data.bannerPreset in ['none', 'obsidian', 'monolith', 'eclipse', 'emerald', 'custom']
-        && isNullableString(data.bannerDataUrl, 260000)
+        && isNullableString(data.bannerDataUrl, 380000)
         && data.accentTone in ['platinum', 'emerald', 'slate', 'amber', 'crimson']
         && isValidShortId(data.creatorId)
         && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 25
         && data.memberIds[0] is string && data.memberIds[0].size() <= 128
         && isNullableString(data.lastMessageId, 128)
         && isNullableString(data.lastMessageFromId, 128)
-        && isNullableString(data.lastMessageCiphertext, 65536)
+        && isNullableString(data.lastMessageCiphertext, 320000)
         && isNullableString(data.lastMessageIv, 128)
         && isNullableString(data.lastMessageSignature, 512)
         && isNullableNumber(data.lastMessageTimestamp)
@@ -285,7 +288,7 @@ service cloud.firestore {
         && isValidShortId(data.id)
         && isValidShortId(data.groupId)
         && isValidShortId(data.fromId)
-        && data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 65536
+        && data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 320000
         && data.iv is string && data.iv.size() >= 1 && data.iv.size() <= 128
         && data.signature is string && data.signature.size() >= 1 && data.signature.size() <= 512
         && data.timestamp is number
@@ -423,6 +426,7 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'handle', 'displayName', 'bio', 'biography', 'avatarDataUrl',
           'avatarIcon', 'accentTone', 'bannerPreset', 'bannerDataUrl',
+          'bubbleShape', 'bubbleStyle',
           'ecdhPublicJwk', 'ecdsaPublicJwk', 'fingerprint', 'updatedAt'
         ]);
       allow delete: if false;

@@ -16,6 +16,19 @@ export type AccentToneKey =
 
 export type GlassIntensity = 'subtle' | 'balanced' | 'deep';
 
+export type BubbleShapeKey = 'rounded' | 'pill' | 'sharp' | 'editorial';
+
+export type BubbleStyleKey = 'glass' | 'solid' | 'outline' | 'elevated';
+
+export type MessageTextSize = 'compact' | 'normal' | 'large';
+
+export interface ChatAttachment {
+  kind: 'image';
+  dataUrl: string;
+  mimeType: string;
+  name?: string;
+}
+
 export type BannerPresetKey =
   | 'none'
   | 'obsidian'
@@ -35,6 +48,8 @@ export interface PublicUser {
   accentTone?: AccentToneKey;
   bannerPreset?: BannerPresetKey;
   bannerDataUrl?: string | null;
+  bubbleShape?: BubbleShapeKey;
+  bubbleStyle?: BubbleStyleKey;
   ecdhPublicJwk: JsonWebKey;
   ecdsaPublicJwk: JsonWebKey;
   fingerprint: string;
@@ -125,6 +140,7 @@ export interface DecryptedMessage {
   sender?: PublicUser;
   text: string;
   replyTo?: ReplyReference;
+  attachment?: ChatAttachment;
   timestamp: number;
   expiresAt: number | null;
   readAt: number | null;

@@ -12,6 +12,8 @@ import {
   Clock,
   Copy,
   Eye,
+  ImagePlus,
+  Loader2,
   Lock,
   Phone,
   Plus,
@@ -34,7 +36,9 @@ import {
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { type CallSignalPayload, useWebRTCCall } from '../hooks/useWebRTCCall';
+import { getBubbleClassNames, getMessageTextSizeClass } from '../lib/bubbleTheme';
 import { getFreshFirebaseIdToken } from '../lib/firebase';
+import { prepareChatMediaDataUrl } from '../lib/imageUtils';
 import { showLocalServiceWorkerNotification } from '../lib/pushNotifications';
 import {
   decryptAndVerifyGroupMessage,
@@ -70,6 +74,7 @@ import {
   unblockUserInFirestore,
 } from '../lib/firestoreStore';
 import type {
+  ChatAttachment,
   DecryptedMessage,
   EncryptedMessageEnvelope,
   EphemeralDuration,
@@ -77,6 +82,7 @@ import type {
   GlassIntensity,
   GroupInfo,
   GroupMessageEnvelope,
+  MessageTextSize,
   PublicUser,
   RelationshipState,
   ReplyReference,
@@ -94,7 +100,7 @@ import { PeerProfileModal } from './PeerProfileModal';
 import { ProfileBanner } from './ProfileBanner';
 import { ProfileModal } from './ProfileModal';
 import { SecurityModal } from './SecurityModal';
-import { TONE_CLASSES, UserAvatar } from './UserAvatar';
+import { UserAvatar } from './UserAvatar';
 
 interface ChatWorkspaceProps {
   session: UnlockedSession;
@@ -128,6 +134,19 @@ const EPHEMERAL_OPTIONS: { value: EphemeralDuration; label: string }[] = [
 ];
 
 const GLASS_PREF_KEY = 'discret_glass_intensity_v1';
+const MSG_TEXT_SIZE_PREF_KEY = 'discret_msg_text_size_v1';
+
+function formatMessagePreviewText(
+  text: string,
+  attachment?: ChatAttachment
+): string {
+  const clean = text.trim();
+  if (attachment) {
+    const tag = attachment.mimeType === 'image/gif' ? 'GIF animé' : 'Image';
+    return clean ? `${tag} · ${clean}` : tag;
+  }
+  return text;
+}
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('fr-FR', {
@@ -203,6 +222,18 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     return 'balanced';
   });
 
+  const [messageTextSize, setMessageTextSize] = useState<MessageTextSize>(() => {
+    try {
+      const saved = window.localStorage.getItem(MSG_TEXT_SIZE_PREF_KEY);
+      if (saved === 'compact' || saved === 'normal' || saved === 'large') {
+        return saved;
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+    return 'normal';
+  });
+
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isFriendsModalOpen, setIsFriendsModalOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
@@ -247,6 +278,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [copiedHandle, setCopiedHandle] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<DecryptedMessage | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<ChatAttachment | null>(null);
+  const [preparingAttachment, setPreparingAttachment] = useState(false);
+  const [lightboxMedia, setLightboxMedia] = useState<ChatAttachment | null>(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
   const [inChatSearchOpen, setInChatSearchOpen] = useState(false);
   const [inChatSearchQuery, setInChatSearchQuery] = useState('');
@@ -264,6 +298,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatMediaInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarSearchRef = useRef<HTMLInputElement | null>(null);
   const inChatSearchInputRef = useRef<HTMLInputElement | null>(null);
   const isNearBottomRef = useRef<boolean>(true);
@@ -353,6 +388,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   }
 
+  function handleChangeMessageTextSize(val: MessageTextSize) {
+    setMessageTextSize(val);
+    try {
+      window.localStorage.setItem(MSG_TEXT_SIZE_PREF_KEY, val);
+    } catch {
+      // Ignore storage error
+    }
+  }
+
   // Tick every second when ephemeral messages exist
   useEffect(() => {
     const hasEphemeral = messages.some((m) => m.expiresAt !== null);
@@ -434,6 +478,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         toId: env.toId,
         text: result.text,
         replyTo: result.replyTo,
+        attachment: result.attachment,
         timestamp: env.timestamp,
         expiresAt: env.expiresAt,
         readAt: env.readAt,
@@ -498,6 +543,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         sender,
         text: result.text,
         replyTo: result.replyTo,
+        attachment: result.attachment,
         timestamp: env.timestamp,
         expiresAt: env.expiresAt,
         readAt: null,
@@ -534,7 +580,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           let preview: string | null = null;
           if (conv.lastMessage) {
             const dec = await decryptEnvelope(conv.lastMessage, conv.peer);
-            preview = dec.text;
+            preview = formatMessagePreviewText(dec.text, dec.attachment);
           }
           return {
             peer: conv.peer,
@@ -564,7 +610,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 : dec.sender
                   ? `${getContactDisplayName(dec.sender, friendAliasesRef.current)} : `
                   : '';
-            preview = `${prefix}${dec.text}`;
+            preview = `${prefix}${formatMessagePreviewText(dec.text, dec.attachment)}`;
           }
           return {
             group: g,
@@ -620,6 +666,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     isNearBottomRef.current = true;
     setSendError(null);
     setReplyingTo(null);
+    setPendingAttachment(null);
+    setLightboxMedia(null);
     setInChatSearchOpen(false);
     setInChatSearchQuery('');
     setActiveSearchMatchIdx(0);
@@ -792,7 +840,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         setInChatSearchOpen(true);
         window.setTimeout(() => inChatSearchInputRef.current?.focus(), 20);
       } else if (e.key === 'Escape') {
-        if (inChatSearchOpen) {
+        if (lightboxMedia) {
+          setLightboxMedia(null);
+        } else if (inChatSearchOpen) {
           setInChatSearchOpen(false);
           setInChatSearchQuery('');
         } else if (replyingTo) {
@@ -802,7 +852,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [inChatSearchOpen, replyingTo]);
+  }, [inChatSearchOpen, replyingTo, lightboxMedia]);
 
   // Real-time WebSocket connection for WebRTC call signaling & live typing indicators
   useEffect(() => {
@@ -1098,11 +1148,58 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }, 2200);
   }
 
+  async function handleAttachMediaFile(file: File) {
+    if (!file.type.startsWith('image/')) {
+      setSendError('Sélectionnez une image ou un GIF animé.');
+      return;
+    }
+    setSendError(null);
+    setPreparingAttachment(true);
+    try {
+      const prepared = await prepareChatMediaDataUrl(file);
+      setPendingAttachment(prepared);
+      composerRef.current?.focus();
+    } catch (err) {
+      setSendError(
+        err instanceof Error
+          ? err.message
+          : 'Impossible de préparer ce fichier média.'
+      );
+    } finally {
+      setPreparingAttachment(false);
+    }
+  }
+
+  function handleComposerFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) {
+      void handleAttachMediaFile(file);
+    }
+  }
+
+  function handleComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          void handleAttachMediaFile(file);
+          break;
+        }
+      }
+    }
+  }
+
   async function handleSendMessage(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!activeTarget || sending) return;
+    if (!activeTarget || sending || preparingAttachment) return;
     const trimmed = composerText.trim();
-    if (!trimmed) return;
+    const currentAttachment = pendingAttachment;
+    if (!trimmed && !currentAttachment) return;
 
     setSending(true);
     setSendError(null);
@@ -1111,6 +1208,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     const id = window.crypto.randomUUID();
     const timestamp = Date.now();
     const currentReply = replyingTo;
+    const replyExcerpt = currentReply
+      ? currentReply.text.replace(/\s+/g, ' ').trim().slice(0, 140) ||
+        (currentReply.attachment?.mimeType === 'image/gif'
+          ? 'GIF animé'
+          : currentReply.attachment
+            ? 'Image'
+            : '')
+      : '';
     const replyRef: ReplyReference | undefined = currentReply
       ? {
           id: currentReply.id,
@@ -1122,7 +1227,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 : activeTarget.kind === 'dm'
                   ? getContactDisplayName(activeTarget.peer, friendAliases)
                   : 'Membre',
-          excerpt: currentReply.text.replace(/\s+/g, ' ').trim().slice(0, 140),
+          excerpt: replyExcerpt,
         }
       : undefined;
 
@@ -1137,6 +1242,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           toId: peer.id,
           plaintext: trimmed,
           replyTo: replyRef,
+          attachment: currentAttachment ?? undefined,
           timestamp,
           myEcdhPrivateKey: session.ecdhPrivateKey,
           myEcdsaPrivateKey: session.ecdsaPrivateKey,
@@ -1150,6 +1256,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           toId: peer.id,
           text: trimmed,
           replyTo: replyRef,
+          attachment: currentAttachment ?? undefined,
           timestamp,
           expiresAt:
             ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
@@ -1166,6 +1273,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
         setComposerText('');
+        setPendingAttachment(null);
         setReplyingTo(null);
 
         const savedEnv = await sendDirectMessageInFirestore({
@@ -1214,6 +1322,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           fromId: session.user.id,
           plaintext: trimmed,
           replyTo: replyRef,
+          attachment: currentAttachment ?? undefined,
           timestamp,
           groupAesKey: groupKey,
           myEcdsaPrivateKey: session.ecdsaPrivateKey,
@@ -1228,6 +1337,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           sender: session.user,
           text: trimmed,
           replyTo: replyRef,
+          attachment: currentAttachment ?? undefined,
           timestamp,
           expiresAt:
             ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
@@ -1244,6 +1354,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
         setComposerText('');
+        setPendingAttachment(null);
         setReplyingTo(null);
 
         const savedGroupEnv = await sendGroupMessageInFirestore({
@@ -1285,7 +1396,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       }
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== id));
-      setComposerText((prev) => (prev ? prev : trimmed));
+      if (trimmed) setComposerText((prev) => (prev ? prev : trimmed));
+      if (currentAttachment) setPendingAttachment((prev) => prev ?? currentAttachment);
       if (currentReply) {
         setReplyingTo((prev) => prev ?? currentReply);
       }
@@ -1429,8 +1541,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   );
   const activeGroupTypingUser = activeGroup ? typingGroups[activeGroup.id] : null;
 
-  const myTone =
-    TONE_CLASSES[session.user.accentTone ?? 'platinum'] ?? TONE_CLASSES.platinum;
+  const messageTextSizeClass = getMessageTextSizeClass(messageTextSize);
 
   const glassSurfaceClass =
     glassIntensity === 'subtle'
@@ -2319,11 +2430,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                           )}
 
                           <div
-                            className={`relative max-w-[85%] sm:max-w-[68%] rounded-2xl px-4 py-2.5 backdrop-blur-xl transition-colors ${
-                              isMine
-                                ? `${myTone.bubbleBg} border ${myTone.bubbleBorder} text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]`
-                                : 'bg-white/[0.035] border border-white/[0.065] text-zinc-100 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]'
-                            } ${
+                            className={`relative max-w-[85%] sm:max-w-[68%] px-4 py-2.5 transition-colors ${getBubbleClassNames({
+                              isMine,
+                              accentTone: session.user.accentTone,
+                              bubbleShape: session.user.bubbleShape,
+                              bubbleStyle: session.user.bubbleStyle,
+                            })} ${
                               isActiveSearchMatch || isHighlighted
                                 ? 'ring-2 ring-emerald-400/70'
                                 : isSearchMatch
@@ -2346,9 +2458,35 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                               </button>
                             )}
 
-                            <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words">
-                              {msg.text}
-                            </p>
+                            {msg.attachment && (
+                              <button
+                                type="button"
+                                onClick={() => setLightboxMedia(msg.attachment!)}
+                                title="Agrandir l’image"
+                                className={`group/media relative block overflow-hidden rounded-xl border border-white/[0.1] bg-black/35 cursor-zoom-in ${
+                                  msg.text.trim() ? 'mb-2' : ''
+                                }`}
+                              >
+                                <img
+                                  src={msg.attachment.dataUrl}
+                                  alt={msg.attachment.name || 'Média chiffré'}
+                                  className="max-h-72 w-auto max-w-full object-contain block"
+                                />
+                                {msg.attachment.mimeType === 'image/gif' && (
+                                  <span className="absolute top-2 left-2 rounded-md bg-black/70 backdrop-blur-sm border border-white/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
+                                    GIF
+                                  </span>
+                                )}
+                              </button>
+                            )}
+
+                            {msg.text && (
+                              <p
+                                className={`${messageTextSizeClass} whitespace-pre-wrap break-words`}
+                              >
+                                {msg.text}
+                              </p>
+                            )}
 
                             {inspectorMode && (
                               <div className="mt-2.5 pt-2 border-t border-white/[0.1] font-mono text-[10px] text-zinc-400 space-y-1 break-all">
@@ -2401,7 +2539,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                 </span>
                               )}
 
-                              {!msg.decryptionError && msg.text.trim().length > 0 && (
+                              {!msg.decryptionError &&
+                                (msg.text.trim().length > 0 || Boolean(msg.attachment)) && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2591,7 +2730,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                 : 'Contact'}
                         </p>
                         <p className="text-zinc-400 truncate">
-                          {replyingTo.text}
+                          {replyingTo.text ||
+                            (replyingTo.attachment?.mimeType === 'image/gif'
+                              ? 'GIF animé'
+                              : 'Image')}
                         </p>
                       </div>
                       <button
@@ -2605,18 +2747,72 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     </div>
                   )}
 
+                  {pendingAttachment && (
+                    <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={pendingAttachment.dataUrl}
+                          alt={pendingAttachment.name || 'Aperçu du média'}
+                          className="h-12 w-12 rounded-lg object-cover border border-white/[0.1] shrink-0 bg-black/40"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-white truncate">
+                            {pendingAttachment.mimeType === 'image/gif'
+                              ? 'GIF animé prêt à chiffrer'
+                              : 'Image prête à chiffrer'}
+                          </p>
+                          {pendingAttachment.name && (
+                            <p className="text-[11px] text-zinc-400 truncate">
+                              {pendingAttachment.name}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPendingAttachment(null)}
+                        aria-label="Retirer le média"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+
                   {sendError && (
                     <p className="mb-2 text-xs text-red-400">{sendError}</p>
                   )}
+                  <input
+                    ref={chatMediaInputRef}
+                    type="file"
+                    accept="image/*,.gif"
+                    onChange={handleComposerFileChange}
+                    className="hidden"
+                  />
                   <form
                     onSubmit={handleSendMessage}
-                    className="flex items-end gap-2.5 sm:gap-3"
+                    className="flex items-end gap-2 sm:gap-3"
                   >
-                    <div className="flex-1 glass-input rounded-2xl px-4 py-2.5 flex items-center gap-2">
+                    <div className="flex-1 glass-input rounded-2xl px-2.5 sm:px-3.5 py-2 flex items-end gap-2">
+                      <button
+                        type="button"
+                        disabled={preparingAttachment || sending}
+                        onClick={() => chatMediaInputRef.current?.click()}
+                        title="Joindre une image ou un GIF animé"
+                        aria-label="Joindre une image ou un GIF animé"
+                        className="h-8 w-8 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        {preparingAttachment ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
+                        )}
+                      </button>
                       <textarea
                         ref={composerRef}
                         rows={1}
                         value={composerText}
+                        onPaste={handleComposerPaste}
                         onChange={(e) => {
                           handleComposerChange(e.target.value);
                           const el = composerRef.current;
@@ -2643,14 +2839,18 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                               })...`
                             : activeGroup
                               ? `Écrire dans ${activeGroup.name}...`
-                              : 'Écrire un message chiffré de bout en bout...'
+                              : 'Message, image ou GIF...'
                         }
-                        className="w-full resize-none bg-transparent text-sm leading-relaxed text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
+                        className="w-full py-1 resize-none bg-transparent text-sm leading-relaxed text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
                       />
                     </div>
                     <button
                       type="submit"
-                      disabled={!composerText.trim() || sending}
+                      disabled={
+                        (!composerText.trim() && !pendingAttachment) ||
+                        sending ||
+                        preparingAttachment
+                      }
                       onClick={() => {
                         if (composerRef.current) {
                           composerRef.current.style.height = 'auto';
@@ -2810,6 +3010,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         user={session.user}
         glassIntensity={glassIntensity}
         onChangeGlassIntensity={handleChangeGlassIntensity}
+        messageTextSize={messageTextSize}
+        onChangeMessageTextSize={handleChangeMessageTextSize}
         onProfileUpdated={(updated) => {
           onUpdateUser(updated);
           setConversations((prev) =>
@@ -2934,6 +3136,31 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         onSelectAudioInput={(id) => void call.selectAudioInput(id)}
         onSelectAudioOutput={call.selectAudioOutput}
       />
+
+      {lightboxMedia && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Aperçu du média"
+          onClick={() => setLightboxMedia(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxMedia(null)}
+            aria-label="Fermer l’aperçu"
+            className="absolute top-4 right-4 h-10 w-10 flex items-center justify-center rounded-full border border-white/15 bg-black/60 text-white hover:bg-black/85 transition-colors cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={lightboxMedia.dataUrl}
+            alt={lightboxMedia.name || 'Média chiffré'}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[88dvh] max-w-[92vw] rounded-2xl object-contain border border-white/[0.1] shadow-2xl"
+          />
+        </div>
+      )}
     </div>
   );
 };

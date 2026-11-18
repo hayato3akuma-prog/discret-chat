@@ -118,7 +118,7 @@
         },
         "avatarDataUrl": {
           "type": "string",
-          "maxLength": 160000
+          "maxLength": 300000
         },
         "avatarIcon": {
           "type": "string",
@@ -134,7 +134,15 @@
         },
         "bannerDataUrl": {
           "type": "string",
-          "maxLength": 260000
+          "maxLength": 380000
+        },
+        "bubbleShape": {
+          "type": "string",
+          "enum": ["rounded", "pill", "sharp", "editorial"]
+        },
+        "bubbleStyle": {
+          "type": "string",
+          "enum": ["glass", "solid", "outline", "elevated"]
         },
         "ecdhPublicJwk": {
           "type": "object"
@@ -315,7 +323,7 @@
         },
         "lastMessageCiphertext": {
           "type": "string",
-          "maxLength": 65536
+          "maxLength": 320000
         },
         "lastMessageIv": {
           "type": "string",
@@ -401,7 +409,7 @@
         "ciphertext": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 65536
+          "maxLength": 320000
         },
         "iv": {
           "type": "string",
@@ -463,7 +471,7 @@
         },
         "avatarDataUrl": {
           "type": "string",
-          "maxLength": 160000
+          "maxLength": 300000
         },
         "bannerPreset": {
           "type": "string",
@@ -471,7 +479,7 @@
         },
         "bannerDataUrl": {
           "type": "string",
-          "maxLength": 260000
+          "maxLength": 380000
         },
         "accentTone": {
           "type": "string",
@@ -496,7 +504,7 @@
         },
         "lastMessageCiphertext": {
           "type": "string",
-          "maxLength": 65536
+          "maxLength": 320000
         },
         "lastMessageIv": {
           "type": "string",
@@ -612,7 +620,7 @@
         "ciphertext": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 65536
+          "maxLength": 320000
         },
         "iv": {
           "type": "string",

@@ -13,7 +13,10 @@ import {
 import { BANNER_PRESETS } from '../lib/banners';
 import { generateGroupKeyBytes, wrapGroupKeyForMember } from '../lib/crypto';
 import { createGroupInFirestore, searchPublicUsers } from '../lib/firestoreStore';
-import { compressBannerImage, compressSquareAvatar } from '../lib/imageUtils';
+import {
+  prepareAvatarImageOrGif,
+  prepareBannerImageOrGif,
+} from '../lib/imageUtils';
 import type {
   AccentToneKey,
   BannerPresetKey,
@@ -115,11 +118,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     setError(null);
     try {
-      const compressed = await compressSquareAvatar(file);
-      setAvatarDataUrl(compressed);
+      const prepared = await prepareAvatarImageOrGif(file);
+      setAvatarDataUrl(prepared);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Impossible de charger cette photo.'
@@ -129,11 +133,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
   async function handleBannerUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     setError(null);
     try {
-      const compressed = await compressBannerImage(file);
-      setBannerDataUrl(compressed);
+      const prepared = await prepareBannerImageOrGif(file);
+      setBannerDataUrl(prepared);
       setBannerPreset('custom');
     } catch (err) {
       setError(
@@ -237,7 +242,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               <input
                 ref={bannerInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,.gif"
                 onChange={handleBannerUpload}
                 className="hidden"
               />
@@ -247,7 +252,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                 className="absolute top-2.5 right-2.5 flex items-center gap-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/15 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-black/80 transition-colors cursor-pointer"
               >
                 <ImagePlus className="h-3.5 w-3.5" />
-                <span>Bannière</span>
+                <span>Bannière / GIF</span>
               </button>
             </div>
 
@@ -268,7 +273,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   <input
                     ref={avatarInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.gif"
                     onChange={handleAvatarUpload}
                     className="hidden"
                   />
@@ -278,7 +283,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                     className="flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
                   >
                     <Camera className="h-3.5 w-3.5" />
-                    <span>Photo du groupe</span>
+                    <span>Photo / GIF</span>
                   </button>
                   {avatarDataUrl && (
                     <button

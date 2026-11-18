@@ -19,6 +19,8 @@ import type {
   AccentToneKey,
   BannerPresetKey,
   AvatarIconKey,
+  BubbleShapeKey,
+  BubbleStyleKey,
   ConversationSummary,
   EncryptedMessageEnvelope,
   FriendRequestRecord,
@@ -68,6 +70,21 @@ const ALLOWED_BANNERS: BannerPresetKey[] = [
   'emerald',
   'custom',
 ];
+const ALLOWED_BUBBLE_SHAPES: BubbleShapeKey[] = [
+  'rounded',
+  'pill',
+  'sharp',
+  'editorial',
+];
+const ALLOWED_BUBBLE_STYLES: BubbleStyleKey[] = [
+  'glass',
+  'solid',
+  'outline',
+  'elevated',
+];
+const MAX_AVATAR_LEN = 300_000;
+const MAX_BANNER_LEN = 380_000;
+const MAX_CIPHERTEXT_LEN = 320_000;
 
 const profileCache = new Map<string, PublicUser>();
 
@@ -273,6 +290,16 @@ function docToPublicUser(id: string, data: Record<string, unknown>): PublicUser 
   const banner = ALLOWED_BANNERS.includes(data.bannerPreset as BannerPresetKey)
     ? (data.bannerPreset as BannerPresetKey)
     : 'obsidian';
+  const bubbleShape = ALLOWED_BUBBLE_SHAPES.includes(
+    data.bubbleShape as BubbleShapeKey
+  )
+    ? (data.bubbleShape as BubbleShapeKey)
+    : 'rounded';
+  const bubbleStyle = ALLOWED_BUBBLE_STYLES.includes(
+    data.bubbleStyle as BubbleStyleKey
+  )
+    ? (data.bubbleStyle as BubbleStyleKey)
+    : 'glass';
 
   const user: PublicUser = {
     id,
@@ -285,6 +312,8 @@ function docToPublicUser(id: string, data: Record<string, unknown>): PublicUser 
     accentTone: tone,
     bannerPreset: banner,
     bannerDataUrl: typeof data.bannerDataUrl === 'string' ? data.bannerDataUrl : null,
+    bubbleShape,
+    bubbleStyle,
     ecdhPublicJwk: (data.ecdhPublicJwk as JsonWebKey) ?? {},
     ecdsaPublicJwk: (data.ecdsaPublicJwk as JsonWebKey) ?? {},
     fingerprint: String(data.fingerprint || ''),
@@ -409,6 +438,8 @@ export async function createDiscretAccountInFirestore(params: {
       accentTone: 'platinum',
       bannerPreset: 'obsidian',
       bannerDataUrl: null,
+      bubbleShape: 'rounded',
+      bubbleStyle: 'glass',
       ecdhPublicJwk,
       ecdsaPublicJwk,
       fingerprint: params.identity.fingerprint,
@@ -478,6 +509,8 @@ export async function createDiscretAccountInFirestore(params: {
     accentTone: 'platinum',
     bannerPreset: 'obsidian',
     bannerDataUrl: null,
+    bubbleShape: 'rounded',
+    bubbleStyle: 'glass',
     ecdhPublicJwk,
     ecdsaPublicJwk,
     fingerprint: params.identity.fingerprint,
@@ -498,6 +531,8 @@ export async function updateMyProfileInFirestore(
     accentTone?: AccentToneKey;
     bannerPreset?: BannerPresetKey;
     bannerDataUrl?: string | null;
+    bubbleShape?: BubbleShapeKey;
+    bubbleStyle?: BubbleStyleKey;
   }
 ): Promise<PublicUser> {
   const pubPath = `publicProfiles/${uid}`;
@@ -545,7 +580,7 @@ export async function updateMyProfileInFirestore(
         ? null
         : typeof updates.avatarDataUrl === 'string' &&
             updates.avatarDataUrl.startsWith('data:image/') &&
-            updates.avatarDataUrl.length <= 160_000
+            updates.avatarDataUrl.length <= MAX_AVATAR_LEN
           ? updates.avatarDataUrl
           : existing.avatarDataUrl ?? null;
     const nextAvatarIcon =
@@ -565,9 +600,17 @@ export async function updateMyProfileInFirestore(
         ? null
         : typeof updates.bannerDataUrl === 'string' &&
             updates.bannerDataUrl.startsWith('data:image/') &&
-            updates.bannerDataUrl.length <= 260_000
+            updates.bannerDataUrl.length <= MAX_BANNER_LEN
           ? updates.bannerDataUrl
           : existing.bannerDataUrl ?? null;
+    const nextBubbleShape =
+      updates.bubbleShape && ALLOWED_BUBBLE_SHAPES.includes(updates.bubbleShape)
+        ? updates.bubbleShape
+        : existing.bubbleShape || 'rounded';
+    const nextBubbleStyle =
+      updates.bubbleStyle && ALLOWED_BUBBLE_STYLES.includes(updates.bubbleStyle)
+        ? updates.bubbleStyle
+        : existing.bubbleStyle || 'glass';
 
     const batch = writeBatch(db);
     batch.update(pubRef, {
@@ -579,6 +622,8 @@ export async function updateMyProfileInFirestore(
       accentTone: nextAccentTone,
       bannerPreset: nextBannerPreset,
       bannerDataUrl: nextBannerDataUrl,
+      bubbleShape: nextBubbleShape,
+      bubbleStyle: nextBubbleStyle,
       updatedAt: serverTimestamp(),
     });
     batch.update(doc(db, 'users', uid), {
@@ -624,6 +669,8 @@ export async function updateMyProfileInFirestore(
       accentTone: nextAccentTone,
       bannerPreset: nextBannerPreset,
       bannerDataUrl: nextBannerDataUrl,
+      bubbleShape: nextBubbleShape,
+      bubbleStyle: nextBubbleStyle,
     };
     profileCache.set(uid, updated);
     return updated;
@@ -917,6 +964,9 @@ export async function sendDirectMessageInFirestore(params: {
   timestamp: number;
   ttlSeconds: number;
 }): Promise<EncryptedMessageEnvelope> {
+  if (params.ciphertext.length > MAX_CIPHERTEXT_LEN) {
+    throw new Error('Message ou média trop volumineux pour le chiffrement.');
+  }
   if (
     params.toId !== params.fromId &&
     (await isBlockedBetweenInFirestore(params.fromId, params.toId))
@@ -1230,14 +1280,14 @@ export async function createGroupInFirestore(params: {
   const safeAvatar =
     typeof params.avatarDataUrl === 'string' &&
     params.avatarDataUrl.startsWith('data:image/') &&
-    params.avatarDataUrl.length <= 160_000
+    params.avatarDataUrl.length <= MAX_AVATAR_LEN
       ? params.avatarDataUrl
       : null;
 
   const safeBanner =
     typeof params.bannerDataUrl === 'string' &&
     params.bannerDataUrl.startsWith('data:image/') &&
-    params.bannerDataUrl.length <= 260_000
+    params.bannerDataUrl.length <= MAX_BANNER_LEN
       ? params.bannerDataUrl
       : null;
 
@@ -1340,7 +1390,7 @@ export async function updateGroupInFirestore(
         ? null
         : typeof updates.avatarDataUrl === 'string' &&
             updates.avatarDataUrl.startsWith('data:image/') &&
-            updates.avatarDataUrl.length <= 160_000
+            updates.avatarDataUrl.length <= MAX_AVATAR_LEN
           ? updates.avatarDataUrl
           : (cur.avatarDataUrl as string | null) ?? null;
     const nextBannerPreset =
@@ -1352,7 +1402,7 @@ export async function updateGroupInFirestore(
         ? null
         : typeof updates.bannerDataUrl === 'string' &&
             updates.bannerDataUrl.startsWith('data:image/') &&
-            updates.bannerDataUrl.length <= 260_000
+            updates.bannerDataUrl.length <= MAX_BANNER_LEN
           ? updates.bannerDataUrl
           : (cur.bannerDataUrl as string | null) ?? null;
     const nextTone =
@@ -1488,6 +1538,9 @@ export async function sendGroupMessageInFirestore(params: {
   timestamp: number;
   ttlSeconds: number;
 }): Promise<GroupMessageEnvelope> {
+  if (params.ciphertext.length > MAX_CIPHERTEXT_LEN) {
+    throw new Error('Message ou média trop volumineux pour le chiffrement.');
+  }
   const expiresAt =
     params.ttlSeconds > 0 ? Date.now() + params.ttlSeconds * 1000 : null;
   const path = `groups/${params.groupId}/messages/${params.id}`;

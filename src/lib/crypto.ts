@@ -1,5 +1,5 @@
 // Web Crypto API End-to-End Encryption & Zero-Knowledge Key Derivation Engine
-import type { ReplyReference } from '../types';
+import type { ChatAttachment, ReplyReference } from '../types';
 
 const KEY_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const PBKDF2_ITERATIONS = 250_000;
@@ -15,6 +15,31 @@ function sanitizeReplyReference(raw: unknown): ReplyReference | undefined {
         ? r.senderName.trim().slice(0, 48)
         : 'Contact',
     excerpt: typeof r.excerpt === 'string' ? r.excerpt.slice(0, 180) : '',
+  };
+}
+
+function sanitizeAttachment(raw: unknown): ChatAttachment | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const a = raw as Record<string, unknown>;
+  if (a.kind !== 'image') return undefined;
+  if (
+    typeof a.dataUrl !== 'string' ||
+    !a.dataUrl.startsWith('data:image/') ||
+    a.dataUrl.length > 235_000
+  ) {
+    return undefined;
+  }
+  const mimeType =
+    typeof a.mimeType === 'string' && a.mimeType.startsWith('image/')
+      ? a.mimeType.slice(0, 48)
+      : 'image/jpeg';
+  return {
+    kind: 'image',
+    dataUrl: a.dataUrl,
+    mimeType,
+    ...(typeof a.name === 'string' && a.name.trim()
+      ? { name: a.name.trim().slice(0, 64) }
+      : {}),
   };
 }
 
@@ -401,6 +426,7 @@ export async function encryptAndSignMessage(params: {
   toId: string;
   plaintext: string;
   replyTo?: ReplyReference;
+  attachment?: ChatAttachment;
   timestamp: number;
   myEcdhPrivateKey: CryptoKey;
   myEcdsaPrivateKey: CryptoKey;
@@ -418,10 +444,12 @@ export async function encryptAndSignMessage(params: {
   window.crypto.getRandomValues(iv);
 
   const replyTo = sanitizeReplyReference(params.replyTo);
+  const attachment = sanitizeAttachment(params.attachment);
   const payload = JSON.stringify({
     text: params.plaintext,
     ...(replyTo ? { replyTo } : {}),
-    v: replyTo ? 2 : 1,
+    ...(attachment ? { attachment } : {}),
+    v: attachment ? 3 : replyTo ? 2 : 1,
     ts: params.timestamp,
   });
 
@@ -464,6 +492,7 @@ export async function decryptAndVerifyMessage(params: {
 }): Promise<{
   text: string;
   replyTo?: ReplyReference;
+  attachment?: ChatAttachment;
   verified: boolean;
   error?: boolean;
 }> {
@@ -483,6 +512,7 @@ export async function decryptAndVerifyMessage(params: {
     const parsed = JSON.parse(utf8Decode(plainBuf)) as {
       text: string;
       replyTo?: unknown;
+      attachment?: unknown;
     };
 
     let verified = false;
@@ -506,8 +536,9 @@ export async function decryptAndVerifyMessage(params: {
     }
 
     return {
-      text: parsed.text,
+      text: typeof parsed.text === 'string' ? parsed.text : '',
       replyTo: sanitizeReplyReference(parsed.replyTo),
+      attachment: sanitizeAttachment(parsed.attachment),
       verified,
     };
   } catch {
@@ -611,6 +642,7 @@ export async function encryptAndSignGroupMessage(params: {
   fromId: string;
   plaintext: string;
   replyTo?: ReplyReference;
+  attachment?: ChatAttachment;
   timestamp: number;
   groupAesKey: CryptoKey;
   myEcdsaPrivateKey: CryptoKey;
@@ -620,10 +652,12 @@ export async function encryptAndSignGroupMessage(params: {
   window.crypto.getRandomValues(iv);
 
   const replyTo = sanitizeReplyReference(params.replyTo);
+  const attachment = sanitizeAttachment(params.attachment);
   const payload = JSON.stringify({
     text: params.plaintext,
     ...(replyTo ? { replyTo } : {}),
-    v: replyTo ? 2 : 1,
+    ...(attachment ? { attachment } : {}),
+    v: attachment ? 3 : replyTo ? 2 : 1,
     ts: params.timestamp,
   });
 
@@ -663,6 +697,7 @@ export async function decryptAndVerifyGroupMessage(params: {
 }): Promise<{
   text: string;
   replyTo?: ReplyReference;
+  attachment?: ChatAttachment;
   verified: boolean;
   error?: boolean;
 }> {
@@ -676,6 +711,7 @@ export async function decryptAndVerifyGroupMessage(params: {
     const parsed = JSON.parse(utf8Decode(plainBuf)) as {
       text: string;
       replyTo?: unknown;
+      attachment?: unknown;
     };
 
     let verified = false;
@@ -701,8 +737,9 @@ export async function decryptAndVerifyGroupMessage(params: {
     }
 
     return {
-      text: parsed.text,
+      text: typeof parsed.text === 'string' ? parsed.text : '',
       replyTo: sanitizeReplyReference(parsed.replyTo),
+      attachment: sanitizeAttachment(parsed.attachment),
       verified,
     };
   } catch {

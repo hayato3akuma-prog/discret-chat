@@ -22,7 +22,10 @@ import {
   searchPublicUsers,
   updateGroupInFirestore,
 } from '../lib/firestoreStore';
-import { compressBannerImage, compressSquareAvatar } from '../lib/imageUtils';
+import {
+  prepareAvatarImageOrGif,
+  prepareBannerImageOrGif,
+} from '../lib/imageUtils';
 import type {
   AccentToneKey,
   BannerPresetKey,
@@ -123,11 +126,12 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     setError(null);
     try {
-      const compressed = await compressSquareAvatar(file);
-      setAvatarDataUrl(compressed);
+      const prepared = await prepareAvatarImageOrGif(file);
+      setAvatarDataUrl(prepared);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Impossible de charger cette photo.'
@@ -137,11 +141,12 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
 
   async function handleBannerUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     setError(null);
     try {
-      const compressed = await compressBannerImage(file);
-      setBannerDataUrl(compressed);
+      const prepared = await prepareBannerImageOrGif(file);
+      setBannerDataUrl(prepared);
       setBannerPreset('custom');
     } catch (err) {
       setError(
@@ -307,7 +312,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
           <input
             ref={bannerInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.gif"
             onChange={handleBannerUpload}
             className="hidden"
           />
@@ -318,7 +323,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
               className="flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/15 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-black/80 transition-colors cursor-pointer"
             >
               <ImagePlus className="h-3.5 w-3.5" />
-              <span>Bannière</span>
+              <span>Bannière / GIF</span>
             </button>
             <button
               type="button"
@@ -355,7 +360,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
               <input
                 ref={avatarInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,.gif"
                 onChange={handleAvatarUpload}
                 className="hidden"
               />
@@ -365,7 +370,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                 className="flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
               >
                 <Camera className="h-3.5 w-3.5" />
-                <span>Photo</span>
+                <span>Photo / GIF</span>
               </button>
               {avatarDataUrl && (
                 <button

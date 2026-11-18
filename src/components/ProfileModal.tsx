@@ -15,16 +15,29 @@ import {
 } from 'lucide-react';
 import { BANNER_PRESETS } from '../lib/banners';
 import {
+  BUBBLE_SHAPE_OPTIONS,
+  BUBBLE_STYLE_OPTIONS,
+  getBubbleClassNames,
+  getMessageTextSizeClass,
+  MESSAGE_TEXT_SIZE_OPTIONS,
+} from '../lib/bubbleTheme';
+import {
   isPseudonymAvailable,
   normalizePseudoKey,
   updateMyProfileInFirestore,
 } from '../lib/firestoreStore';
-import { compressBannerImage, compressSquareAvatar } from '../lib/imageUtils';
+import {
+  prepareAvatarImageOrGif,
+  prepareBannerImageOrGif,
+} from '../lib/imageUtils';
 import type {
   AccentToneKey,
   AvatarIconKey,
   BannerPresetKey,
+  BubbleShapeKey,
+  BubbleStyleKey,
   GlassIntensity,
+  MessageTextSize,
   PublicUser,
 } from '../types';
 import { ProfileBanner } from './ProfileBanner';
@@ -37,6 +50,8 @@ interface ProfileModalProps {
   user: PublicUser;
   glassIntensity: GlassIntensity;
   onChangeGlassIntensity: (val: GlassIntensity) => void;
+  messageTextSize: MessageTextSize;
+  onChangeMessageTextSize: (val: MessageTextSize) => void;
   onProfileUpdated: (updated: PublicUser) => void;
 }
 
@@ -87,6 +102,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   user,
   glassIntensity,
   onChangeGlassIntensity,
+  messageTextSize,
+  onChangeMessageTextSize,
   onProfileUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>('identity');
@@ -108,6 +125,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   );
   const [bannerDataUrl, setBannerDataUrl] = useState<string | null>(
     user.bannerDataUrl ?? null
+  );
+  const [bubbleShape, setBubbleShape] = useState<BubbleShapeKey>(
+    user.bubbleShape ?? 'rounded'
+  );
+  const [bubbleStyle, setBubbleStyle] = useState<BubbleStyleKey>(
+    user.bubbleStyle ?? 'glass'
   );
 
   const [saving, setSaving] = useState(false);
@@ -137,6 +160,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       setAccentTone(user.accentTone ?? 'platinum');
       setBannerPreset(user.bannerPreset ?? 'obsidian');
       setBannerDataUrl(user.bannerDataUrl ?? null);
+      setBubbleShape(user.bubbleShape ?? 'rounded');
+      setBubbleStyle(user.bubbleStyle ?? 'glass');
       setError(null);
       setSavedNotice(false);
       setPseudoStatus('idle');
@@ -207,7 +232,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       avatarIcon !== (user.avatarIcon ?? 'initials') ||
       accentTone !== (user.accentTone ?? 'platinum') ||
       bannerPreset !== (user.bannerPreset ?? 'obsidian') ||
-      (bannerDataUrl ?? null) !== (user.bannerDataUrl ?? null)
+      (bannerDataUrl ?? null) !== (user.bannerDataUrl ?? null) ||
+      bubbleShape !== (user.bubbleShape ?? 'rounded') ||
+      bubbleStyle !== (user.bubbleStyle ?? 'glass')
     );
   }, [
     displayName,
@@ -218,6 +245,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     accentTone,
     bannerPreset,
     bannerDataUrl,
+    bubbleShape,
+    bubbleStyle,
     user,
   ]);
 
@@ -230,8 +259,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setError(null);
     setUploadingAvatar(true);
     try {
-      const compressed = await compressSquareAvatar(file);
-      setAvatarDataUrl(compressed);
+      const prepared = await prepareAvatarImageOrGif(file);
+      setAvatarDataUrl(prepared);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Impossible de charger cette image.'
@@ -248,8 +277,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setError(null);
     setUploadingBanner(true);
     try {
-      const compressed = await compressBannerImage(file);
-      setBannerDataUrl(compressed);
+      const prepared = await prepareBannerImageOrGif(file);
+      setBannerDataUrl(prepared);
       setBannerPreset('custom');
     } catch (err) {
       setError(
@@ -268,6 +297,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setAccentTone('platinum');
     setBannerDataUrl(null);
     setBannerPreset('obsidian');
+    setBubbleShape('rounded');
+    setBubbleStyle('glass');
+    onChangeMessageTextSize('normal');
     onChangeGlassIntensity('balanced');
     setError(null);
   }
@@ -317,6 +349,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         accentTone,
         bannerPreset,
         bannerDataUrl,
+        bubbleShape,
+        bubbleStyle,
       });
 
       onProfileUpdated(updated);
@@ -342,9 +376,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     accentTone,
     bannerPreset,
     bannerDataUrl,
+    bubbleShape,
+    bubbleStyle,
   };
 
-  const previewTone = TONE_CLASSES[accentTone] ?? TONE_CLASSES.platinum;
+  const previewSentBubbleClass = getBubbleClassNames({
+    isMine: true,
+    accentTone,
+    bubbleShape,
+    bubbleStyle,
+  });
+  const previewReceivedBubbleClass = getBubbleClassNames({
+    isMine: false,
+    accentTone,
+    bubbleShape,
+    bubbleStyle,
+  });
+  const previewTextClass = getMessageTextSizeClass(messageTextSize);
 
   return (
     <div
@@ -429,14 +477,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         <input
           ref={avatarInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.gif"
           onChange={handleAvatarChange}
           className="hidden"
         />
         <input
           ref={bannerInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.gif"
           onChange={handleBannerUpload}
           className="hidden"
         />
@@ -460,7 +508,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     ) : (
                       <ImagePlus className="h-3.5 w-3.5" />
                     )}
-                    <span>Bannière</span>
+                    <span>Bannière / GIF</span>
                   </button>
                   {bannerPreset === 'custom' && bannerDataUrl && (
                     <button
@@ -497,7 +545,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       ) : (
                         <Camera className="h-3.5 w-3.5" />
                       )}
-                      <span>Photo</span>
+                      <span>Photo / GIF</span>
                     </button>
                     {avatarDataUrl && (
                       <button
@@ -659,19 +707,124 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <div className="space-y-5">
               {/* Live Message Bubble Preview */}
               <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-zinc-300">
+                    Aperçu des bulles de messages
+                  </p>
+                  <span className="text-[11px] text-zinc-500">
+                    Images & GIF animés pris en charge
+                  </span>
+                </div>
+                <div className="rounded-2xl border border-white/[0.06] bg-[#07070a]/75 p-3.5 space-y-2.5">
+                  <div className="flex justify-start">
+                    <div
+                      className={`max-w-[82%] px-3.5 py-2 transition-all ${previewReceivedBubbleClass}`}
+                    >
+                      <p className={previewTextClass}>
+                        On garde le canal discret ?
+                      </p>
+                      <p className="mt-0.5 text-[10px] font-mono text-zinc-500 tabular-nums">
+                        22:17
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <div
+                      className={`max-w-[82%] px-3.5 py-2 transition-all ${previewSentBubbleClass}`}
+                    >
+                      <p className={previewTextClass}>
+                        Oui, tout est chiffré de bout en bout.
+                      </p>
+                      <p className="mt-0.5 text-[10px] font-mono text-zinc-300/80 text-right tabular-nums">
+                        22:18
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bubble Shape */}
+              <div>
                 <p className="text-xs font-medium text-zinc-300 mb-2">
-                  Aperçu de vos bulles de messages
+                  Forme des bulles
                 </p>
-                <div className="rounded-2xl border border-white/[0.06] bg-[#07070a]/70 p-3.5 flex flex-col items-end">
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${previewTone.bubbleBg} border ${previewTone.bubbleBorder} text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]`}
-                  >
-                    <p className="text-[13px] leading-relaxed">
-                      Message chiffré de bout en bout.
-                    </p>
-                    <p className="mt-1 text-[10px] font-mono text-zinc-300/80 text-right tabular-nums">
-                      22:18
-                    </p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {BUBBLE_SHAPE_OPTIONS.map((opt) => {
+                    const active = bubbleShape === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setBubbleShape(opt.key)}
+                        className={`flex flex-col items-center gap-1.5 rounded-xl border py-2.5 px-2 text-[11px] font-medium transition-colors cursor-pointer ${
+                          active
+                            ? 'border-white/30 bg-white/[0.11] text-white'
+                            : 'border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'
+                        }`}
+                      >
+                        <span
+                          className={`h-3.5 w-8 border ${
+                            active
+                              ? 'border-white/50 bg-white/20'
+                              : 'border-white/25 bg-white/[0.06]'
+                          } ${opt.sentRadius}`}
+                        />
+                        <span>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Bubble Surface Style & Text Size */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-medium text-zinc-300 mb-2">
+                    Surface des bulles
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {BUBBLE_STYLE_OPTIONS.map((opt) => {
+                      const active = bubbleStyle === opt.key;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => setBubbleStyle(opt.key)}
+                          className={`rounded-xl border py-2 px-2.5 text-xs font-medium transition-colors cursor-pointer ${
+                            active
+                              ? 'border-white/30 bg-white/[0.11] text-white'
+                              : 'border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-medium text-zinc-300 mb-2">
+                    Taille du texte
+                  </p>
+                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.025] p-1 border border-white/[0.06]">
+                    {MESSAGE_TEXT_SIZE_OPTIONS.map((opt) => {
+                      const active = messageTextSize === opt.key;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => onChangeMessageTextSize(opt.key)}
+                          className={`rounded-lg py-2 px-2 text-xs font-medium transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-white/[0.12] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
