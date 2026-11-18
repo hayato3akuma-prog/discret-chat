@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { resolveUserBanner } from '../lib/banners';
 import type { PublicUser } from '../types';
 
@@ -15,6 +15,10 @@ export const ProfileBanner: React.FC<ProfileBannerProps> = ({
 }) => {
   const { imageUrl, fallbackGradient } = resolveUserBanner(user);
   const [imgFailed, setImgFailed] = useState(false);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [imageUrl]);
 
   return (
     <div
