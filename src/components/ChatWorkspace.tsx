@@ -2360,12 +2360,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex h-full items-center justify-center">
-                    <div className="glass-surface max-w-md w-full overflow-hidden rounded-2xl text-center">
+                    <div className="glass-liquid max-w-md w-full overflow-hidden rounded-3xl text-center">
                       {activePeer ? (
                         <>
                           <ProfileBanner user={activePeer} className="h-24" />
                           <div className="px-6 pb-6">
-                            <div className="-mt-7 mx-auto mb-3 inline-flex rounded-full p-1 bg-[#0a0a0e] border border-white/10">
+                            <div className="-mt-7 mx-auto mb-3 inline-flex rounded-full p-1 bg-[#0a0a0e]/90 backdrop-blur-md border border-white/15 shadow-lg">
                               <UserAvatar
                                 user={activePeer}
                                 isSelfVault={isSelfSelected}
@@ -2927,8 +2927,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </>
         ) : (
           <div className="flex h-full items-center justify-center p-6">
-            <div className="glass-surface max-w-sm rounded-2xl p-7 text-center space-y-4">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] text-zinc-200">
+            <div className="glass-liquid max-w-sm rounded-3xl p-7 text-center space-y-4">
+              <div className="glass-control mx-auto flex h-11 w-11 items-center justify-center rounded-xl text-zinc-100">
                 <Lock className="h-5 w-5" />
               </div>
               <div className="space-y-1.5">
@@ -2943,7 +2943,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsContactModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2.5 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all cursor-pointer"
                 >
                   <Plus className="h-4 w-4" />
                   <span>Contact</span>
@@ -2951,7 +2951,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCreateGroupOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-4 py-2.5 text-xs font-medium text-white hover:bg-white/[0.1] transition-colors cursor-pointer"
+                  className="glass-control inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-medium text-white transition-colors cursor-pointer"
                 >
                   <Users className="h-4 w-4" />
                   <span>Groupe</span>
@@ -3197,7 +3197,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
       {lightboxMedia && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 backdrop-blur-xl p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Aperçu du média"
@@ -3207,16 +3207,32 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             type="button"
             onClick={() => setLightboxMedia(null)}
             aria-label="Fermer l’aperçu"
-            className="absolute top-4 right-4 h-10 w-10 flex items-center justify-center rounded-full border border-white/15 bg-black/60 text-white hover:bg-black/85 transition-colors cursor-pointer"
+            className="glass-control backdrop-blur-md absolute top-4 right-4 h-10 w-10 flex items-center justify-center rounded-full text-white transition-colors cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
-          <img
-            src={lightboxMedia.dataUrl}
-            alt={lightboxMedia.name || 'Média chiffré'}
+          <div
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[88dvh] max-w-[92vw] rounded-2xl object-contain border border-white/[0.1] shadow-2xl"
-          />
+            className="glass-liquid rounded-3xl p-2 sm:p-3 max-w-[92vw] flex flex-col items-center gap-2"
+          >
+            <img
+              src={lightboxMedia.dataUrl}
+              alt={lightboxMedia.name || 'Média chiffré'}
+              className="max-h-[82dvh] max-w-full rounded-2xl object-contain block"
+            />
+            {(lightboxMedia.name || lightboxMedia.mimeType === 'image/gif') && (
+              <div className="w-full flex items-center justify-between gap-3 px-2 py-1 text-xs text-zinc-300">
+                <span className="truncate">
+                  {lightboxMedia.name || 'Média chiffré'}
+                </span>
+                {lightboxMedia.mimeType === 'image/gif' && (
+                  <span className="font-mono text-[11px] text-emerald-300 shrink-0">
+                    GIF animé
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

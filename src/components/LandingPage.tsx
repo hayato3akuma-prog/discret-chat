@@ -8,15 +8,16 @@ import {
   KeyRound,
   Lock,
   MessageSquareLock,
+  Mic,
   Phone,
   ShieldCheck,
   Smartphone,
   Users,
+  Video,
   Volume2,
 } from 'lucide-react';
-import acousticCallImg from '../assets/images/acoustic_call_studio_1794859620583.jpg';
-import cryptoKeyImg from '../assets/images/crypto_key_craft_1794859619870.jpg';
-import heroVaultImg from '../assets/images/hero_discret_vault_1794859619487.jpg';
+import { getBubbleClassNames } from '../lib/bubbleTheme';
+import type { BubbleStyleKey } from '../types';
 import { AppInstallModal } from './AppInstallModal';
 
 interface LandingPageProps {
@@ -44,7 +45,7 @@ const CAPABILITIES: CapabilityItem[] = [
     title: 'Messagerie directe chiffrée de bout en bout',
     spec: 'ECDH P-256 · AES-256-GCM · Signature ECDSA',
     description:
-      'Chaque message est chiffré sur votre appareil avec un secret partagé ECDH P-256, un vecteur d’initialisation unique et une signature numérique vérifiée à la réception. Accusés de lecture en direct, indicateur de saisie et suppression définitive pour tous inclus.',
+      'Chaque message texte, image ou GIF animé est chiffré sur votre appareil avec un secret partagé ECDH P-256, un IV unique et une signature numérique vérifiée à la réception. Réponses ciblées, recherche locale, accusés de lecture et suppression pour tous inclus.',
     spanWide: true,
     icon: MessageSquareLock,
   },
@@ -63,26 +64,26 @@ const CAPABILITIES: CapabilityItem[] = [
     title: 'Groupes privés chiffrés et inspecteur brut',
     spec: 'Clé AES de groupe enveloppée par membre',
     description:
-      'Créez des salons privés où la clé symétrique du groupe est protégée individuellement pour chaque participant. Activez le mode inspecteur pour vérifier le texte chiffré et l’IV exacts transmis.',
+      'Créez des salons privés avec bannière et avatar personnalisés (y compris GIF animés) où la clé symétrique du groupe est protégée individuellement pour chaque participant.',
     icon: Users,
   },
   {
     number: '04',
     category: 'security',
-    title: 'Coffre personnel, amis et vérification d’empreinte',
-    spec: 'Notes privées · Blocage · Empreinte SHA-256',
+    title: 'Pseudonyme unique, surnoms d’amis et coffre privé',
+    spec: 'Surnoms locaux privés · Blocage · Empreinte SHA-256',
     description:
-      'Conservez des notes personnelles chiffrées dans votre coffre privé, gérez vos contacts par identifiant @pseudo#hash, bloquez tout utilisateur indésirable et comparez vos empreintes cryptographiques.',
+      'Chaque personne dispose d’un pseudonyme unique sans doublon, tout en pouvant attribuer un surnom privé à ses contacts. Conservez vos notes personnelles dans votre coffre chiffré.',
     spanWide: true,
     icon: ShieldCheck,
   },
   {
     number: '05',
     category: 'media',
-    title: 'Appels audio et vidéo pair-à-pair en temps réel',
-    spec: 'WebRTC DTLS-SRTP · Signalisation WebSocket',
+    title: 'Appels audio et vidéo P2P avec bulle déplaçable',
+    spec: 'WebRTC DTLS-SRTP · Signalisation WebSocket · Partage d’écran',
     description:
-      'Passez des appels vocaux et vidéo directement entre navigateurs sans intermédiaire média, avec contrôle instantané du micro, de la caméra et affichage plein écran.',
+      'Passez des appels vocaux et vidéo chiffrés directement entre navigateurs avec changement de caméra, partage d’écran, télémétrie réseau et bulle réduite librement déplaçable.',
     spanWide: true,
     icon: Phone,
   },
@@ -107,10 +108,10 @@ const CAPABILITIES: CapabilityItem[] = [
   {
     number: '08',
     category: 'security',
-    title: 'Identité sans compte tiers et persistance protégée',
-    spec: 'Clé 120 bits · IndexedDB non-extractible',
+    title: 'Interface Liquid Glass et bulles sur mesure',
+    spec: 'Verre fumé · Relief · Formes et teintes personnalisables',
     description:
-      'Aucune adresse e-mail, aucun compte Google et aucun numéro requis. Votre session reste ouverte de façon chiffrée dans le navigateur pour ne pas ressaisir votre clé à chaque visite.',
+      'Ajustez l’intensité du verre dépoli sur votre appareil, personnalisez la forme, la surface, la teinte et la taille de vos bulles de messages, et profitez d’une session chiffrée persistante.',
     spanWide: true,
     icon: KeyRound,
   },
@@ -123,6 +124,14 @@ const FILTER_TABS: { id: CapabilityCategory; label: string }[] = [
   { id: 'media', label: 'Appels, Voix & PWA' },
 ];
 
+const PREVIEW_STYLES: { key: BubbleStyleKey; label: string }[] = [
+  { key: 'glass', label: 'Verre fumé' },
+  { key: 'elevated', label: 'Relief' },
+  { key: 'outline', label: 'Contour' },
+];
+
+const VOICE_RATES = [0.85, 1, 1.15, 1.4] as const;
+
 export const LandingPage: React.FC<LandingPageProps> = ({
   isAuthenticated,
   onOpenAuth,
@@ -131,9 +140,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [activeCategory, setActiveCategory] = useState<CapabilityCategory>('all');
   const [installModalOpen, setInstallModalOpen] = useState(false);
 
-  const [heroImgFailed, setHeroImgFailed] = useState(false);
-  const [cryptoImgFailed, setCryptoImgFailed] = useState(false);
-  const [mediaImgFailed, setMediaImgFailed] = useState(false);
+  // Interactive Liquid Glass showcase controls inside Hero & Media sections
+  const [previewStyle, setPreviewStyle] = useState<BubbleStyleKey>('glass');
+  const [inspectCipher, setInspectCipher] = useState(false);
+  const [demoVoiceRate, setDemoVoiceRate] = useState<(typeof VOICE_RATES)[number]>(1);
+  const [demoMuted, setDemoMuted] = useState(false);
 
   const visibleCapabilities = useMemo(() => {
     if (activeCategory === 'all') return CAPABILITIES;
@@ -148,18 +159,34 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     }
   };
 
+  const receivedBubbleClass = getBubbleClassNames({
+    isMine: false,
+    bubbleShape: 'editorial',
+    bubbleStyle: previewStyle,
+    accentTone: 'emerald',
+  });
+
+  const sentBubbleClass = getBubbleClassNames({
+    isMine: true,
+    bubbleShape: 'editorial',
+    bubbleStyle: previewStyle,
+    accentTone: 'emerald',
+  });
+
   return (
     <div
       id="top"
       className="relative min-h-screen w-full overflow-x-hidden bg-[#050507] text-[#F4F4F5] flex flex-col"
     >
+      {/* Multi-layered obsidian liquid ambient field */}
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="liquid-orb-a absolute -top-52 left-[18%] h-[560px] w-[720px] rounded-full bg-sky-200/[0.045] blur-[150px]" />
-        <div className="liquid-orb-b absolute top-[35%] right-[10%] h-[480px] w-[580px] rounded-full bg-emerald-400/[0.035] blur-[150px]" />
+        <div className="liquid-orb-a absolute -top-52 left-[14%] h-[580px] w-[760px] rounded-full bg-sky-200/[0.05] blur-[150px]" />
+        <div className="liquid-orb-b absolute top-[34%] right-[8%] h-[500px] w-[600px] rounded-full bg-emerald-400/[0.04] blur-[150px]" />
+        <div className="absolute bottom-[-180px] left-[28%] h-[460px] w-[580px] rounded-full bg-indigo-300/[0.035] blur-[150px]" />
       </div>
 
       {/* Top Bar Contract: exactly 3 zones (Brand — 4 Nav Links — 1 Primary Action) */}
-      <header className="sticky top-0 z-30 border-b border-white/[0.1] bg-[#07070c]/75 backdrop-blur-2xl backdrop-saturate-[180%] shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.04)]">
+      <header className="sticky top-0 z-30 border-b border-white/[0.1] bg-[#07070c]/75 backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.04)]">
         <div className="mx-auto max-w-[1200px] h-16 px-4 sm:px-8 flex items-center justify-between gap-8">
           <a
             href="#top"
@@ -203,7 +230,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={onReturnToWorkspace}
-                className="min-h-[40px] rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                className="min-h-[40px] rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 Retour à la messagerie
               </button>
@@ -211,7 +238,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenAuth('login')}
-                className="min-h-[40px] rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                className="min-h-[40px] rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 Accéder au coffre
               </button>
@@ -220,96 +247,155 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </header>
 
-      <main className="flex-1">
-        {/* Hero Section */}
+      <main className="relative z-10 flex-1">
+        {/* Hero Section: Editorial Proposition + Interactive Liquid Glass Interface Preview */}
         <section className="mx-auto max-w-[1200px] px-4 sm:px-8 pt-12 pb-16 sm:pt-20 sm:pb-24">
-          <div className="max-w-3xl">
-            <p className="text-xs text-zinc-400 flex flex-wrap items-center gap-x-2.5 gap-y-1">
-              <span>Zéro compte Google</span>
-              <span aria-hidden="true">·</span>
-              <span>Zéro e-mail</span>
-              <span aria-hidden="true">·</span>
-              <span>Chiffrement client Web Crypto API</span>
-            </p>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+            <div className="lg:col-span-6">
+              <p className="text-xs text-zinc-400 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <span>Zéro compte Google</span>
+                <span aria-hidden="true">·</span>
+                <span>Zéro e-mail</span>
+                <span aria-hidden="true">·</span>
+                <span>Chiffrement client Web Crypto API</span>
+              </p>
 
-            <h1
-              className="mt-4 font-[family-name:var(--font-display)] font-semibold tracking-tight text-white leading-[1.08] text-balance"
-              style={{ fontSize: 'clamp(2.25rem, 4.2vw, 3.75rem)' }}
-            >
-              La messagerie souveraine chiffrée de bout en bout, sans aucun compte tiers.
-            </h1>
-
-            <p className="mt-5 max-w-[65ch] text-base leading-relaxed text-zinc-400">
-              Échangez en tête-à-tête ou en groupe privé, passez des appels audio et vidéo en temps réel, envoyez des messages éphémères et écoutez vos conversations par synthèse vocale locale. Une seule clé cryptographique de 120 bits suffit pour ouvrir et restaurer votre coffre.
-            </p>
-
-            <div className="mt-8 flex flex-wrap items-center gap-5">
-              <button
-                type="button"
-                onClick={handlePrimaryCta}
-                className="min-h-[44px] inline-flex items-center gap-2.5 rounded-xl bg-white px-6 py-3 text-sm font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap cursor-pointer"
+              <h1
+                className="mt-4 font-[family-name:var(--font-display)] font-semibold tracking-tight text-white leading-[1.08] text-balance"
+                style={{ fontSize: 'clamp(2.2rem, 3.9vw, 3.55rem)' }}
               >
-                <span>
-                  {isAuthenticated ? 'Ouvrir ma messagerie' : 'Créer ma clé unique'}
-                </span>
-                <ArrowRight className="h-4 w-4" />
-              </button>
+                La messagerie souveraine chiffrée de bout en bout, sans aucun compte tiers.
+              </h1>
 
-              {!isAuthenticated && (
+              <p className="mt-5 max-w-[60ch] text-base leading-relaxed text-zinc-400">
+                Échangez textes, images et GIF animés en tête-à-tête ou en groupe privé, passez des appels audio et vidéo en temps réel et écoutez vos messages par synthèse vocale locale. Une seule clé de 120 bits suffit pour ouvrir et restaurer votre coffre.
+              </p>
+
+              <div className="mt-8 flex flex-wrap items-center gap-5">
                 <button
                   type="button"
-                  onClick={() => onOpenAuth('login')}
-                  className="min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium text-zinc-300 hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap cursor-pointer"
+                  onClick={handlePrimaryCta}
+                  className="min-h-[44px] inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-6 py-3 text-sm font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff,0_10px_28px_-8px_rgba(255,255,255,0.28)] hover:brightness-95 active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer"
                 >
-                  <span>J’ai déjà une clé d’accès</span>
+                  <span>
+                    {isAuthenticated ? 'Ouvrir ma messagerie' : 'Créer ma clé unique'}
+                  </span>
+                  <ArrowRight className="h-4 w-4" />
                 </button>
-              )}
-            </div>
-          </div>
 
-          {/* Dominant 16:9 Focal Visual */}
-          <div className="mt-12 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0e]">
-            <div className="relative aspect-video w-full">
-              {!heroImgFailed ? (
-                <img
-                  src={heroVaultImg}
-                  alt="Poste de travail minimaliste dans un environnement sombre et vitré représentant le coffre privé DISCRET"
-                  referrerPolicy="no-referrer"
-                  onError={() => setHeroImgFailed(true)}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#0e0e14] via-[#09090d] to-[#050507] p-8 text-center">
-                  <div className="space-y-2">
-                    <Lock className="mx-auto h-8 w-8 text-zinc-400" />
-                    <p className="text-sm font-medium text-zinc-300">
-                      Coffre de communication chiffré DISCRET
+                {!isAuthenticated && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenAuth('login')}
+                    className="min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium text-zinc-300 hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <span>J’ai déjà une clé d’accès</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Interactive Liquid Glass Workspace Showcase (Zero Images) */}
+            <div className="lg:col-span-6">
+              <div className="relative glass-liquid rounded-3xl p-4 sm:p-5 overflow-hidden">
+                {/* Subtle refractive light behind preview bubbles */}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 overflow-hidden"
+                >
+                  <div className="absolute -top-12 -right-10 h-44 w-56 rounded-full bg-emerald-400/[0.11] blur-3xl" />
+                  <div className="absolute -bottom-14 -left-10 h-44 w-56 rounded-full bg-sky-300/[0.1] blur-3xl" />
+                </div>
+
+                {/* Floating Glass Window Header */}
+                <div className="relative z-10 flex items-center justify-between gap-3 rounded-2xl glass-surface px-3.5 py-2.5">
+                  <div className="min-w-0">
+                    <p className="font-[family-name:var(--font-display)] text-sm font-semibold text-white truncate">
+                      Sora
+                    </p>
+                    <p className="font-mono text-[11px] text-zinc-400 truncate">
+                      @sora#8f2a · Canal ECDH P-256
                     </p>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setInspectCipher((v) => !v)}
+                    className={`min-h-[34px] inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-medium transition-all whitespace-nowrap shrink-0 cursor-pointer border ${
+                      inspectCipher
+                        ? 'glass-control-active text-emerald-300'
+                        : 'glass-control text-zinc-200 hover:text-white'
+                    }`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>{inspectCipher ? 'Vue déchiffrée' : 'Inspecter AES'}</span>
+                  </button>
                 </div>
-              )}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#050507] via-black/25 to-transparent"
-              />
-              <div className="absolute bottom-0 left-0 right-0 p-5 sm:p-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-                <div>
-                  <p className="text-xs text-zinc-300">
-                    Architecture zéro connaissance
-                  </p>
-                  <p className="mt-1 text-sm sm:text-base font-medium text-white">
-                    Vos clés privées ECDH et ECDSA ne quittent jamais votre navigateur en clair.
-                  </p>
+
+                {/* Live Refraction Bubble Stream */}
+                <div className="relative z-10 py-5 px-1 space-y-3">
+                  <div className="flex justify-start">
+                    <div
+                      className={`max-w-[85%] px-4 py-2.5 transition-all ${receivedBubbleClass}`}
+                    >
+                      <p className="text-[13px] sm:text-sm leading-relaxed">
+                        {inspectCipher
+                          ? 'g7Kp+8wR2xL9vQ3mN0tY4bZ1cH6jF5sD=='
+                          : 'Clé éphémère prête. Le canal reste uniquement sur nos appareils.'}
+                      </p>
+                      <p className="mt-1 font-mono text-[10px] text-zinc-400 tabular-nums">
+                        {inspectCipher ? 'IV 9f3c...a410 · ECDSA vérifié' : '22:17'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <div
+                      className={`max-w-[85%] px-4 py-2.5 transition-all ${sentBubbleClass}`}
+                    >
+                      <p className="text-[13px] sm:text-sm leading-relaxed">
+                        {inspectCipher
+                          ? 'X4mQ9pL2vN8rK1wT6yB3cZ7hJ0sF4dA=='
+                          : 'Parfait, j’active l’auto-destruction 5 min et les bulles Liquid Glass.'}
+                      </p>
+                      <p className="mt-1 font-mono text-[10px] text-zinc-200/80 text-right tabular-nums">
+                        {inspectCipher ? 'AES-256-GCM · Lu' : '22:18 · Lu'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <span className="font-mono text-xs text-emerald-300 whitespace-nowrap tabular-nums">
-                  AES-256-GCM · P-256
-                </span>
+
+                {/* Interactive Bubble Style Switcher */}
+                <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/[0.08] bg-black/30 px-3 py-2">
+                  <span className="text-[11px] font-medium text-zinc-400 whitespace-nowrap">
+                    Style de bulle en direct
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {PREVIEW_STYLES.map((opt) => {
+                      const active = previewStyle === opt.key;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => setPreviewStyle(opt.key)}
+                          className={`min-h-[30px] rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all whitespace-nowrap cursor-pointer border ${
+                            active
+                              ? 'glass-control-active text-white'
+                              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* 4-Column Quantitative Proof Strip */}
-          <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 glass-surface rounded-2xl divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+          <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 glass-surface rounded-2xl divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
             <div className="p-5 sm:p-6">
               <p className="font-mono text-xl sm:text-2xl font-semibold text-white tabular-nums">
                 120 bits
@@ -360,7 +446,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Tout ce que DISCRET permet de faire au quotidien.
                 </h2>
                 <p className="mt-3 text-sm sm:text-base leading-relaxed text-zinc-400">
-                  Chaque outil de l’espace de discussion fonctionne sans serveur de déchiffrement central : vos textes, groupes, appels et préférences restent sous votre contrôle cryptographique.
+                  Chaque outil de l’espace de discussion fonctionne sans serveur de déchiffrement central : vos textes, médias, groupes, appels et préférences restent sous votre contrôle cryptographique.
                 </p>
               </div>
 
@@ -368,7 +454,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div
                 role="tablist"
                 aria-label="Filtrer les fonctionnalités"
-                className="flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-1 self-start lg:self-auto"
+                className="flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.08] bg-black/30 p-1 self-start lg:self-auto shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
               >
                 {FILTER_TABS.map((tab) => (
                   <button
@@ -377,10 +463,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     role="tab"
                     aria-selected={activeCategory === tab.id}
                     onClick={() => setActiveCategory(tab.id)}
-                    className={`min-h-[36px] rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                    className={`min-h-[36px] rounded-lg px-3 py-1.5 text-xs font-medium transition-all whitespace-nowrap cursor-pointer border ${
                       activeCategory === tab.id
-                        ? 'bg-white text-zinc-950'
-                        : 'text-zinc-400 hover:text-white'
+                        ? 'glass-control-active text-white'
+                        : 'border-transparent text-zinc-400 hover:text-white'
                     }`}
                   >
                     {tab.label}
@@ -396,7 +482,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 return (
                   <article
                     key={item.number}
-                    className={`glass-surface rounded-2xl p-6 sm:p-7 flex flex-col justify-between transition-all hover:border-white/[0.2] ${
+                    className={`glass-surface rounded-2xl p-6 sm:p-7 flex flex-col justify-between transition-all hover:border-white/[0.22] ${
                       useWide ? 'lg:col-span-2' : 'lg:col-span-1'
                     }`}
                   >
@@ -417,7 +503,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       </p>
                     </div>
 
-                    <p className="mt-6 pt-4 border-t border-white/[0.06] font-mono text-xs text-zinc-400">
+                    <p className="mt-6 pt-4 border-t border-white/[0.07] font-mono text-xs text-zinc-400">
                       {item.spec}
                     </p>
                   </article>
@@ -427,7 +513,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* Cryptographic Architecture Split */}
+        {/* Cryptographic Architecture Split (Image-Free Liquid Glass Schematic) */}
         <section
           id="cryptographie"
           className="scroll-mt-20 border-t border-white/[0.07] py-16 sm:py-24"
@@ -450,7 +536,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     Persistance chiffrée sans déconnexion forcée
                   </h3>
                   <p className="mt-1 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                    Vos clés privées restent mémorisées localement dans un coffre AES-256-GCM protégé par une clé non-extractible stockée dans IndexedDB : vous restez connecté entre les visites et les mises à jour sans exposer vos secrets en clair.
+                    Vos clés privées restent mémorisées localement dans un coffre AES-256-GCM protégé par une clé non-extractible stockée dans IndexedDB : vous restez connecté entre les visites sans exposer vos secrets en clair.
                   </p>
                 </div>
                 <div className="py-4">
@@ -472,20 +558,99 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            <div className="lg:col-span-6 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0e]">
-              {!cryptoImgFailed ? (
-                <img
-                  src={cryptoKeyImg}
-                  alt="Clé cryptographique usinée en titane et prisme en verre fumé sur pierre sombre"
-                  referrerPolicy="no-referrer"
-                  onError={() => setCryptoImgFailed(true)}
-                  className="h-full w-full min-h-[280px] object-cover"
+            {/* Liquid Glass Cryptographic Pipeline Card */}
+            <div className="lg:col-span-6 flex">
+              <div className="relative glass-liquid w-full rounded-3xl p-6 sm:p-8 flex flex-col justify-between overflow-hidden">
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -top-20 -right-16 h-56 w-56 rounded-full bg-sky-300/[0.08] blur-3xl"
                 />
-              ) : (
-                <div className="flex h-full min-h-[320px] w-full items-center justify-center bg-gradient-to-br from-[#101016] to-[#060609] p-8">
-                  <KeyRound className="h-10 w-10 text-zinc-400" />
+                <div className="relative z-10 flex items-center justify-between gap-4 pb-5 border-b border-white/[0.08]">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl glass-control flex items-center justify-center text-emerald-300">
+                      <Lock className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="font-[family-name:var(--font-display)] text-sm font-semibold text-white">
+                        Architecture du coffre local
+                      </p>
+                      <p className="text-xs text-zinc-400">
+                        Exécutée exclusivement dans votre navigateur
+                      </p>
+                    </div>
+                  </div>
+                  <span className="font-mono text-[11px] text-emerald-300 whitespace-nowrap">
+                    Web Crypto API
+                  </span>
                 </div>
-              )}
+
+                <div className="relative z-10 my-6 divide-y divide-white/[0.07]">
+                  <div className="py-4 first:pt-0 flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-zinc-300">
+                        01. Dérivation de la clé maître
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Entropie CSPRNG 120 bits → déverrouillage PBKDF2-SHA256
+                      </p>
+                    </div>
+                    <span className="font-mono text-xs text-zinc-200 tabular-nums shrink-0">
+                      250 000 itér.
+                    </span>
+                  </div>
+
+                  <div className="py-4 flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-zinc-300">
+                        02. Enveloppe asymétrique P-256
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Secret partagé ECDH par discussion et signature ECDSA par message
+                      </p>
+                    </div>
+                    <span className="font-mono text-xs text-zinc-200 shrink-0">
+                      NIST P-256
+                    </span>
+                  </div>
+
+                  <div className="py-4 flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-zinc-300">
+                        03. Médias, GIF et textes chiffrés
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Contenu et pièces jointes chiffrés en AES-256-GCM avant tout envoi
+                      </p>
+                    </div>
+                    <span className="font-mono text-xs text-emerald-300 shrink-0">
+                      AES-256-GCM
+                    </span>
+                  </div>
+
+                  <div className="py-4 last:pb-0 flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-zinc-300">
+                        04. Persistance navigateur protégée
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Coffre chiffré sous clé non-extractible dans IndexedDB
+                      </p>
+                    </div>
+                    <span className="font-mono text-xs text-zinc-200 shrink-0">
+                      Zéro clair
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative z-10 rounded-2xl border border-white/[0.08] bg-black/35 px-4 py-3 flex items-center justify-between gap-3">
+                  <span className="font-mono text-xs text-zinc-400 truncate">
+                    DISCRET-9F4K-2M8Q-7X1P-6R5T-...
+                  </span>
+                  <span className="text-[11px] font-medium text-zinc-300 whitespace-nowrap shrink-0">
+                    Clé souveraine locale
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -500,7 +665,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Générez votre clé 120 bits
                 </h3>
                 <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                  Choisissez un pseudonyme optionnel : votre coffre et vos clés P-256 sont créés localement en moins d’une seconde.
+                  Choisissez un pseudonyme unique : votre coffre et vos clés P-256 sont créés localement en moins d’une seconde.
                 </p>
               </div>
               <div className="p-6">
@@ -522,33 +687,97 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Échangez, appelez, écoutez
                 </h3>
                 <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                  Discutez avec messages éphémères, appels audio/vidéo WebRTC, notifications discrètes et synthèse vocale locale.
+                  Discutez avec GIF, messages éphémères, appels WebRTC déplaçables, notifications discrètes et synthèse vocale.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Real-Time Calls, Voice & PWA Split */}
+        {/* Real-Time Calls, Voice & PWA Split (Image-Free Liquid Glass Interactive Dock) */}
         <section
           id="voix"
           className="scroll-mt-20 border-t border-white/[0.07] py-16 sm:py-24"
         >
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch">
-            <div className="lg:col-span-6 order-2 lg:order-1 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0e]">
-              {!mediaImgFailed ? (
-                <img
-                  src={acousticCallImg}
-                  alt="Microphone de studio noir mat et écran minimaliste illustrant les appels temps réel et la synthèse vocale locale"
-                  referrerPolicy="no-referrer"
-                  onError={() => setMediaImgFailed(true)}
-                  className="h-full w-full min-h-[280px] object-cover"
+            <div className="lg:col-span-6 order-2 lg:order-1 flex">
+              <div className="relative glass-liquid w-full rounded-3xl p-6 sm:p-8 flex flex-col justify-between gap-6 overflow-hidden">
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -bottom-16 -left-12 h-56 w-56 rounded-full bg-emerald-400/[0.09] blur-3xl"
                 />
-              ) : (
-                <div className="flex h-full min-h-[320px] w-full items-center justify-center bg-gradient-to-br from-[#101016] to-[#060609] p-8">
-                  <Volume2 className="h-10 w-10 text-zinc-400" />
+
+                {/* Simulated Draggable Liquid Glass Call Bubble */}
+                <div className="relative z-10 glass-surface rounded-2xl overflow-hidden">
+                  <div className="flex items-center justify-center py-1.5 border-b border-white/[0.06] bg-white/[0.03]">
+                    <span className="h-1 w-8 rounded-full bg-white/25" />
+                  </div>
+                  <div className="p-4 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-white truncate">
+                        Kael_07 · Appel vidéo P2P
+                      </p>
+                      <p className="mt-0.5 font-mono text-xs text-emerald-400 tabular-nums">
+                        04:12 · DTLS-SRTP vérifié
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setDemoMuted((v) => !v)}
+                        aria-label={demoMuted ? 'Réactiver le micro' : 'Couper le micro'}
+                        className={`h-9 w-9 flex items-center justify-center rounded-xl transition-colors cursor-pointer border ${
+                          demoMuted
+                            ? 'border-red-500/35 bg-red-500/20 text-red-200'
+                            : 'glass-control text-zinc-100'
+                        }`}
+                      >
+                        <Mic className="h-4 w-4" />
+                      </button>
+                      <span className="h-9 w-9 flex items-center justify-center rounded-xl glass-control text-zinc-100">
+                        <Video className="h-4 w-4" />
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              )}
+
+                {/* Interactive Local Web Speech Cadence Preview */}
+                <div className="relative z-10 glass-surface rounded-2xl p-4 sm:p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
+                      <Volume2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <span>Synthèse vocale locale (Web Speech API)</span>
+                    </div>
+                    <span className="font-mono text-xs text-emerald-300 tabular-nums">
+                      {demoVoiceRate}×
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Lecture audio directement sur votre appareil à partir du texte déchiffré en mémoire, avec interruption automatique dès qu’un appel commence.
+                  </p>
+
+                  <div className="grid grid-cols-4 gap-1.5 rounded-xl bg-black/30 p-1 border border-white/[0.07]">
+                    {VOICE_RATES.map((rate) => {
+                      const active = demoVoiceRate === rate;
+                      return (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => setDemoVoiceRate(rate)}
+                          className={`min-h-[34px] rounded-lg font-mono text-xs font-medium tabular-nums transition-all cursor-pointer border ${
+                            active
+                              ? 'glass-control-active text-white'
+                              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          {rate}×
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="lg:col-span-6 order-1 lg:order-2 flex flex-col justify-center">
@@ -568,7 +797,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     Appels audio et vidéo directs (WebRTC)
                   </h3>
                   <p className="mt-1 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                    Lancez un appel vocal ou vidéo depuis n’importe quelle conversation directe. Les flux média sont chiffrés de pair à pair en DTLS-SRTP avec coupure micro/caméra instantanée.
+                    Lancez un appel vocal ou vidéo depuis n’importe quelle conversation directe. Réduisez l’appel dans une bulle Liquid Glass librement déplaçable tout en continuant à écrire.
                   </p>
                 </div>
 
@@ -577,16 +806,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     Lecture vocale intégrée (API Web Speech)
                   </h3>
                   <p className="mt-1 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                    Écoutez chaque message déchiffré d’un clic ou activez la lecture automatique des nouveaux messages entrants. La synthèse reste 100 % locale dans votre navigateur (vitesse réglable de <span className="font-mono text-zinc-200 tabular-nums">0.85×</span> à <span className="font-mono text-zinc-200 tabular-nums">1.4×</span>) et s’interrompt automatiquement dès qu’un appel démarre ou que vous verrouillez le coffre.
+                    Écoutez chaque message déchiffré d’un clic ou activez la lecture automatique des nouveaux messages entrants. La synthèse reste 100 % locale dans votre navigateur (<span className="font-mono text-zinc-200 tabular-nums">0.85×</span> à <span className="font-mono text-zinc-200 tabular-nums">1.4×</span>).
                   </p>
                 </div>
 
                 <div id="application" className="scroll-mt-24">
                   <h3 className="text-sm font-semibold text-white">
-                    Personnalisation, Push discret et installation PWA
+                    Personnalisation Liquid Glass, GIF et installation PWA
                   </h3>
                   <p className="mt-1 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                    Personnalisez votre pseudonyme, biographie, avatar, bannière, teinte des bulles et transparence du verre fumé. Activez les notifications Push Web avec option Mode Discret, et installez DISCRET comme application dédiée sur Android, iOS, macOS ou Windows.
+                    Personnalisez votre profil, vos bulles de messages, vos GIF animés (avatars, bannières et discussions) et l’intensité du verre dépoli. Activez les notifications Push discrètes et installez DISCRET sur Android, iOS, macOS ou Windows.
                   </p>
                 </div>
               </div>
@@ -597,7 +826,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* Final Action Block */}
         <section className="border-t border-white/[0.07] py-16 sm:py-20">
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8">
-            <div className="glass-liquid rounded-2xl p-8 sm:p-12 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
+            <div className="glass-liquid rounded-3xl p-8 sm:p-12 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
               <div className="max-w-2xl">
                 <h2 className="font-[family-name:var(--font-display)] text-2xl sm:text-3xl font-semibold tracking-tight text-white text-balance">
                   Prêt à communiquer sans laisser de trace en clair ?
@@ -611,7 +840,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <button
                   type="button"
                   onClick={handlePrimaryCta}
-                  className="min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-medium text-zinc-950 hover:bg-zinc-200 transition-colors whitespace-nowrap cursor-pointer"
+                  className="min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-5 py-3 text-sm font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer"
                 >
                   <span>
                     {isAuthenticated ? 'Retour à la messagerie' : 'Créer ma clé unique'}
@@ -622,7 +851,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setInstallModalOpen(true)}
-                  className="min-h-[44px] inline-flex items-center gap-2 rounded-xl border border-white/[0.12] bg-white/[0.04] px-5 py-3 text-sm font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                  className="glass-control min-h-[44px] inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer"
                 >
                   <Smartphone className="h-4 w-4" />
                   <span>Installer l’app</span>
@@ -634,7 +863,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </main>
 
       {/* Quiet Footer */}
-      <footer className="border-t border-white/[0.07] py-8">
+      <footer className="relative z-10 border-t border-white/[0.07] py-8">
         <div className="mx-auto max-w-[1200px] px-4 sm:px-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-zinc-500">
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-[family-name:var(--font-display)] font-semibold text-zinc-300">

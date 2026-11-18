@@ -37,12 +37,12 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="security-modal-title"
     >
-      <div className="glass-elevated w-full max-w-lg rounded-2xl p-6 space-y-5">
+      <div className="glass-liquid w-full max-w-lg rounded-3xl p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="h-5 w-5 text-emerald-400" />
@@ -57,7 +57,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Fermer"
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
+            className="glass-control rounded-xl p-1.5 text-zinc-300 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -68,7 +68,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         </p>
 
         {/* Safety number */}
-        <div className="rounded-xl border border-white/[0.08] bg-black/40 p-4 space-y-2">
+        <div className="glass-surface rounded-2xl p-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-zinc-400">
             <span>Numéro de sécurité de la session</span>
             <span className="font-mono text-emerald-400">ECDH P-256</span>
@@ -83,13 +83,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
         {/* Fingerprints */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+          <div className="glass-surface rounded-2xl p-3.5">
             <p className="text-xs text-zinc-400">Votre empreinte ({currentUser.handle})</p>
             <p className="mt-1.5 font-mono text-xs text-zinc-200 leading-relaxed tabular-nums">
               {currentUser.fingerprint}
             </p>
           </div>
-          <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+          <div className="glass-surface rounded-2xl p-3.5">
             <p className="text-xs text-zinc-400">
               {isSelf ? 'Coffre local' : `Contact (${targetPeer.handle})`}
             </p>
@@ -116,7 +116,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         </div>
 
         {/* Packet inspector toggle */}
-        <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3">
+        <div className="glass-surface flex items-center justify-between rounded-2xl px-4 py-3">
           <div className="flex items-center gap-2.5 pr-4">
             <Eye className="h-4 w-4 text-zinc-300 shrink-0" />
             <div>
@@ -151,7 +151,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+            className="flex items-center gap-2 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all cursor-pointer"
           >
             <Lock className="h-3.5 w-3.5" />
             <span>Fermer</span>

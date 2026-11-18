@@ -106,12 +106,12 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="peer-profile-title"
     >
-      <div className="glass-elevated w-full max-w-md overflow-hidden rounded-2xl my-auto">
+      <div className="glass-liquid w-full max-w-md overflow-hidden rounded-3xl my-auto">
         {/* Banner Header */}
         <div className="relative">
           <ProfileBanner user={peer} className="h-32" />
@@ -119,7 +119,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Fermer"
-            className="absolute top-3 right-3 min-h-[38px] min-w-[38px] flex items-center justify-center rounded-full bg-black/55 border border-white/15 text-zinc-200 hover:bg-black/80 hover:text-white transition-colors cursor-pointer"
+            className="glass-control backdrop-blur-md absolute top-3 right-3 min-h-[38px] min-w-[38px] flex items-center justify-center rounded-full text-zinc-100 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -128,13 +128,13 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
         <div className="px-6 pb-6">
           {/* Overlapping Avatar + Handle */}
           <div className="-mt-8 mb-3 flex items-end justify-between gap-2">
-            <div className="rounded-full p-1 bg-[#0b0b0f] border border-white/10 shrink-0">
+            <div className="rounded-full p-1 bg-[#0b0b0f]/90 backdrop-blur-md border border-white/15 shrink-0 shadow-lg">
               <UserAvatar user={peer} isSelfVault={isSelf} size="lg" />
             </div>
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer min-w-0"
+              className="glass-control flex items-center gap-1.5 rounded-xl px-3 py-1.5 font-mono text-xs text-zinc-200 hover:text-white transition-colors cursor-pointer min-w-0"
             >
               <span className="truncate">{peer.handle}</span>
               {copiedHandle ? (
@@ -183,7 +183,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
 
           {/* Custom Friend Nickname (Nom d'ami) */}
           {!isSelf && onSaveFriendAlias && (
-            <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3.5">
+            <div className="mt-4 glass-surface rounded-2xl p-3.5">
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
                   Nom d’ami (personnel)
@@ -273,7 +273,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
           )}
 
           {/* Biographie Section */}
-          <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3.5">
+          <div className="mt-4 glass-surface rounded-2xl p-3.5">
             <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
               Biographie
             </p>
@@ -289,7 +289,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
           </div>
 
           {/* Public Fingerprint */}
-          <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-1">
+          <div className="mt-3 glass-surface rounded-2xl p-3.5 space-y-1">
             <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
               Empreinte publique SHA-256
             </p>
@@ -312,7 +312,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                     onStartChat(peer);
                     onClose();
                   }}
-                  className="flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                  className="flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-3.5 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all cursor-pointer"
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>Message</span>
@@ -330,7 +330,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                         onStartCall(peer, 'audio');
                       }}
                       title="Appel audio chiffré"
-                      className="min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.14] bg-white/[0.06] px-3 py-2 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                      className="glass-control min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-white transition-colors cursor-pointer"
                     >
                       <Phone className="h-3.5 w-3.5" />
                       <span>Appeler</span>
@@ -342,7 +342,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                         onStartCall(peer, 'video');
                       }}
                       title="Appel vidéo chiffré"
-                      className="min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.14] bg-white/[0.06] px-3 py-2 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                      className="glass-control min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-white transition-colors cursor-pointer"
                     >
                       <Video className="h-3.5 w-3.5" />
                       <span>Vidéo</span>
@@ -357,7 +357,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                   onClick={() =>
                     runAction('add', () => onSendFriendRequest(peer.id))
                   }
-                  className="flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.14] bg-white/[0.07] px-3.5 py-2 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors disabled:opacity-50 cursor-pointer"
+                  className="glass-control flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium text-white transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   <UserPlus className="h-3.5 w-3.5" />
                   <span>
@@ -374,7 +374,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                     onClick={() =>
                       runAction('cancel', () => onDeclineFriendRequest(peer.id))
                     }
-                    className="flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.09] transition-colors disabled:opacity-50 cursor-pointer"
+                    className="glass-control flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium text-zinc-300 transition-colors disabled:opacity-50 cursor-pointer"
                   >
                     <Clock className="h-3.5 w-3.5 text-zinc-400" />
                     <span>Demande envoyée · Annuler</span>
@@ -461,7 +461,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
             </p>
           )}
 
-          <div className="mt-4 pt-3 border-t border-white/[0.07] flex items-center justify-end gap-2.5">
+          <div className="mt-4 pt-3 border-t border-white/[0.08] flex items-center justify-end gap-2.5">
             {onOpenSecurity && (
               <button
                 type="button"
@@ -469,7 +469,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                   onClose();
                   onOpenSecurity();
                 }}
-                className="flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                className="glass-control flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium text-zinc-200 hover:text-white transition-colors cursor-pointer"
               >
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
                 <span>Vérifier E2EE</span>
@@ -478,7 +478,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.06] transition-colors cursor-pointer"
+              className="glass-control rounded-xl px-4 py-2 text-xs font-medium text-zinc-300 hover:text-white transition-colors cursor-pointer"
             >
               Fermer
             </button>
