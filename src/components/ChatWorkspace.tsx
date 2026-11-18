@@ -584,6 +584,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     knownMsgIdsRef.current = new Set();
     animatedNewMsgIdsRef.current = new Set();
     hasLoadedInitialBatchRef.current = false;
+    setSendError(null);
     ttsStopRef.current();
 
     const target = activeTargetRef.current;
@@ -951,9 +952,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     setSendError(null);
     emitTyping(false);
 
+    const id = window.crypto.randomUUID();
+    const timestamp = Date.now();
+
     try {
-      const id = window.crypto.randomUUID();
-      const timestamp = Date.now();
 
       if (activeTarget.kind === 'dm') {
         const peer = activeTarget.peer;
@@ -1104,6 +1106,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         }
       }
     } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      setComposerText((prev) => (prev ? prev : trimmed));
       setSendError(err instanceof Error ? err.message : "Erreur d'envoi.");
     } finally {
       setSending(false);
@@ -1678,7 +1682,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               </div>
 
               {/* Right Controls: Ephemeral Timer & Verification / Group Members */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                 <div className="hidden sm:flex items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
                   <Clock className="ml-2 mr-1 h-3.5 w-3.5 text-zinc-400" />
                   {EPHEMERAL_OPTIONS.map((opt) => (
@@ -1712,7 +1716,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         : 'Activer la lecture vocale automatique'
                     }
                     aria-pressed={tts.autoRead}
-                    className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border px-2.5 py-2 transition-colors cursor-pointer ${
+                    className={`min-h-[38px] min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] flex items-center justify-center rounded-xl border px-2 sm:px-2.5 py-2 transition-colors cursor-pointer ${
                       tts.autoRead
                         ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
                         : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09] hover:text-white'
@@ -1727,7 +1731,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 )}
 
                 {activePeer ? (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1 sm:gap-1.5">
                     {!isSelfSelected &&
                       getRelationship(activePeer.id) !== 'blocked_by_me' &&
                       getRelationship(activePeer.id) !== 'blocked_by_peer' && (
@@ -1738,7 +1742,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             disabled={call.phase !== 'idle'}
                             title="Appel audio en temps réel"
                             aria-label="Appel audio en temps réel"
-                            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                            className="min-h-[38px] min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2 sm:px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
                           >
                             <Phone className="h-4 w-4" />
                           </button>
@@ -1748,7 +1752,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             disabled={call.phase !== 'idle'}
                             title="Appel vidéo en temps réel"
                             aria-label="Appel vidéo en temps réel"
-                            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                            className="min-h-[38px] min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2 sm:px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
                           >
                             <Video className="h-4 w-4" />
                           </button>
@@ -1757,19 +1761,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsSecurityModalOpen(true)}
-                      className="min-h-[40px] flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                      className="min-h-[38px] min-w-[38px] sm:min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-2 sm:px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
                     >
                       <ShieldCheck className="h-4 w-4 text-emerald-400" />
                       <span className="hidden sm:inline">Vérifier E2EE</span>
                     </button>
                   </div>
                 ) : activeGroup ? (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1 sm:gap-1.5">
                     <button
                       type="button"
                       onClick={() => setInspectorMode((v) => !v)}
                       title="Inspecter les paquets chiffrés"
-                      className={`min-h-[40px] flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                      className={`min-h-[38px] min-w-[38px] sm:min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border px-2.5 sm:px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
                         inspectorMode
                           ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
                           : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09]'
@@ -1780,7 +1784,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsGroupInfoOpen(true)}
-                      className="min-h-[40px] flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                      className="min-h-[38px] min-w-[38px] sm:min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-2.5 sm:px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
                     >
                       <Users className="h-4 w-4 text-zinc-200" />
                       <span className="hidden sm:inline">Membres</span>
@@ -1832,24 +1836,30 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             )}
 
             {/* Mobile Ephemeral Selector Bar */}
-            <div className="sm:hidden flex items-center justify-between gap-2 border-b border-white/[0.06] bg-white/[0.015] px-4 py-2">
-              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400">
-                <Clock className="h-3 w-3" />
-                <span>Auto-destruction</span>
+            <div className="sm:hidden flex items-center justify-between gap-2 border-b border-white/[0.06] bg-white/[0.015] px-3 py-2">
+              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400 whitespace-nowrap shrink-0">
+                <Clock className="h-3 w-3 shrink-0" />
+                <span>Éphémère</span>
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 {EPHEMERAL_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
                     onClick={() => setEphemeralDuration(opt.value)}
-                    className={`min-h-[30px] rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                    className={`min-h-[30px] rounded-md px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
                       ephemeralDuration === opt.value
                         ? 'bg-white text-zinc-950'
                         : 'text-zinc-400 hover:text-white'
                     }`}
                   >
-                    {opt.label}
+                    {opt.value === 0
+                      ? 'Permanent'
+                      : opt.value === 30
+                        ? '30s'
+                        : opt.value === 300
+                          ? '5m'
+                          : '24h'}
                   </button>
                 ))}
               </div>

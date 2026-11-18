@@ -440,7 +440,10 @@ service cloud.firestore {
     }
 
     match /conversations/{convId} {
-      allow get: if isVerifiedUser() && isValidId(convId) && isConvParticipantData(existing());
+      allow get: if isVerifiedUser() && isValidId(convId) && (
+        (resource == null && isConvIdParticipant(convId))
+        || (resource != null && isConvParticipantData(existing()))
+      );
       allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
       allow create: if isVerifiedUser()
         && isValidId(convId)
@@ -515,8 +518,9 @@ service cloud.firestore {
     }
 
     match /groups/{groupId} {
-      allow get: if isVerifiedUser() && isValidShortId(groupId)
-        && request.auth.uid in existing().memberIds;
+      allow get: if isVerifiedUser() && isValidShortId(groupId) && (
+        resource == null || request.auth.uid in existing().memberIds
+      );
       allow list: if isVerifiedUser() && request.auth.uid in existing().memberIds;
       allow create: if isVerifiedUser()
         && isValidShortId(groupId)
@@ -614,8 +618,10 @@ service cloud.firestore {
     // 6. Friends, Requests & Blocks
     // =========================================================================
     match /friendRequests/{requestId} {
-      allow get: if isVerifiedUser() && isValidId(requestId)
-        && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+      allow get: if isVerifiedUser() && isValidId(requestId) && (
+        (resource == null && isConvIdParticipant(requestId))
+        || (resource != null && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid))
+      );
       allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
       allow create: if isVerifiedUser()
         && isValidId(requestId)
@@ -634,8 +640,10 @@ service cloud.firestore {
     }
 
     match /friendships/{friendshipId} {
-      allow get: if isVerifiedUser() && isValidId(friendshipId)
-        && (existing().userA == request.auth.uid || existing().userB == request.auth.uid);
+      allow get: if isVerifiedUser() && isValidId(friendshipId) && (
+        (resource == null && isConvIdParticipant(friendshipId))
+        || (resource != null && (existing().userA == request.auth.uid || existing().userB == request.auth.uid))
+      );
       allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
       allow create: if isVerifiedUser()
         && isValidId(friendshipId)
@@ -660,8 +668,10 @@ service cloud.firestore {
     }
 
     match /blocks/{blockId} {
-      allow get: if isVerifiedUser() && isValidId(blockId)
-        && (existing().blockerId == request.auth.uid || existing().targetId == request.auth.uid);
+      allow get: if isVerifiedUser() && isValidId(blockId) && (
+        (resource == null && isConvIdParticipant(blockId))
+        || (resource != null && (existing().blockerId == request.auth.uid || existing().targetId == request.auth.uid))
+      );
       allow list: if isVerifiedUser() && request.auth.uid in existing().participantIds;
       allow create: if isVerifiedUser()
         && isValidId(blockId)
