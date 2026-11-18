@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Activity,
   Maximize2,
@@ -165,7 +165,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     };
   };
 
-  // Reset stage popovers when returning to idle
+  // Reset stage popovers when returning to idle or un-minimizing
   useEffect(() => {
     if (phase === 'idle') {
       setSwapPip(false);
@@ -178,9 +178,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     }
   }, [phase]);
 
-  // Initialize & keep minimized call bubble clamped inside viewport on resize or video toggle
-  useEffect(() => {
-    if (!isMinimized || phase === 'idle' || typeof window === 'undefined') return;
+  // Synchronously initialize & clamp minimized call bubble inside viewport (prevents jump or stretch)
+  useLayoutEffect(() => {
+    if (!isMinimized || phase === 'idle' || typeof window === 'undefined') {
+      setMiniPos(null);
+      setIsDraggingMini(false);
+      dragInfoRef.current = null;
+      return;
+    }
 
     const syncPosition = () => {
       const rect = miniCardRef.current?.getBoundingClientRect();
@@ -204,10 +209,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       });
     };
 
-    const raf = window.requestAnimationFrame(syncPosition);
+    syncPosition();
     window.addEventListener('resize', syncPosition);
     return () => {
-      window.cancelAnimationFrame(raf);
       window.removeEventListener('resize', syncPosition);
     };
   }, [isMinimized, phase, hasRemoteVideoTrack]);
@@ -493,11 +497,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                   transform: `translate3d(${miniPos.x}px, ${miniPos.y}px, 0)`,
                   transition: isDraggingMini
                     ? 'none'
-                    : 'transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease',
+                    : 'box-shadow 180ms ease',
                 }
               : undefined
           }
-          className={`fixed z-50 glass-liquid rounded-2xl overflow-hidden w-[276px] sm:w-[308px] touch-none select-none ${
+          className={`fixed z-50 glass-liquid rounded-2xl overflow-hidden w-[276px] sm:w-[308px] h-auto max-h-[calc(100dvh-24px)] touch-none select-none ${
             miniPos ? 'top-0 left-0' : 'bottom-20 sm:bottom-5 right-3 sm:right-5'
           } ${
             isDraggingMini
