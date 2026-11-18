@@ -31,6 +31,7 @@ interface CreateGroupModalProps {
   onClose: () => void;
   session: UnlockedSession;
   friends?: PublicUser[];
+  friendAliases?: Record<string, string>;
   onGroupCreated: (group: GroupInfo) => void;
 }
 
@@ -39,6 +40,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   onClose,
   session,
   friends = [],
+  friendAliases = {},
   onGroupCreated,
 }) => {
   const [name, setName] = useState('');
@@ -436,7 +438,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                     onClick={() => toggleMember(member)}
                     className="flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.07] px-2.5 py-1 text-xs text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
                   >
-                    <span>{member.displayName}</span>
+                    <span>{friendAliases[member.id]?.trim() || member.displayName}</span>
                     <X className="h-3 w-3 text-zinc-400" />
                   </button>
                 ))}
@@ -474,10 +476,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                         <UserAvatar user={friend} size="sm" />
                         <div className="min-w-0">
                           <p className="text-xs font-medium text-white truncate">
-                            {friend.displayName}
+                            {friendAliases[friend.id]?.trim() || friend.displayName}
                           </p>
                           <p className="font-mono text-[11px] text-zinc-400 truncate">
-                            {friend.handle}
+                            {friendAliases[friend.id]?.trim()
+                              ? `${friend.handle} · ${friend.displayName}`
+                              : friend.handle}
                           </p>
                         </div>
                       </div>
@@ -520,10 +524,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                           <UserAvatar user={user} size="sm" />
                           <div className="min-w-0">
                             <p className="text-xs font-medium text-white truncate">
-                              {user.displayName}
+                              {friendAliases[user.id]?.trim() || user.displayName}
                             </p>
                             <p className="font-mono text-[11px] text-zinc-400 truncate">
-                              {user.handle}
+                              {friendAliases[user.id]?.trim()
+                                ? `${user.handle} · ${user.displayName}`
+                                : user.handle}
                             </p>
                           </div>
                         </div>

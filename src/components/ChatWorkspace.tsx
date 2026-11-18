@@ -1,17 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDown,
   ArrowLeft,
   Ban,
   Bell,
   BellRing,
   Check,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Copy,
   Eye,
   Lock,
   Phone,
   Plus,
+  Reply,
   Search,
   Send,
   ShieldCheck,
@@ -25,6 +29,7 @@ import {
   Video,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -48,14 +53,17 @@ import {
   deleteGroupMessageInFirestore,
   dispatchPushNotification,
   fetchPublicProfile,
+  getContactDisplayName,
   markConversationReadInFirestore,
   openConversationInFirestore,
   removeFriendInFirestore,
   sendDirectMessageInFirestore,
   sendFriendRequestInFirestore,
   sendGroupMessageInFirestore,
+  setFriendAliasInFirestore,
   subscribeConversations,
   subscribeDirectMessages,
+  subscribeFriendAliases,
   subscribeFriendsSnapshot,
   subscribeGroupMessages,
   subscribeGroups,
@@ -71,6 +79,7 @@ import type {
   GroupMessageEnvelope,
   PublicUser,
   RelationshipState,
+  ReplyReference,
   UnlockedSession,
 } from '../types';
 import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
@@ -226,11 +235,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     blocked: [],
     blockedByIds: [],
   });
+  const [friendAliases, setFriendAliases] = useState<Record<string, string>>({});
+  const friendAliasesRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    friendAliasesRef.current = friendAliases;
+  }, [friendAliases]);
 
   const [typingPeers, setTypingPeers] = useState<Record<string, boolean>>({});
   const [typingGroups, setTypingGroups] = useState<Record<string, string | null>>({});
   const [copiedHandle, setCopiedHandle] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<DecryptedMessage | null>(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
+  const [inChatSearchOpen, setInChatSearchOpen] = useState(false);
+  const [inChatSearchQuery, setInChatSearchQuery] = useState('');
+  const [activeSearchMatchIdx, setActiveSearchMatchIdx] = useState(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [unreadBelowCount, setUnreadBelowCount] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -239,8 +261,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const conversationsRef = useRef<SidebarConversation[]>([]);
   const groupKeysCacheRef = useRef<Map<string, CryptoKey>>(new Map());
   const typingTimeoutRef = useRef<number | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const sidebarSearchRef = useRef<HTMLInputElement | null>(null);
+  const inChatSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const isNearBottomRef = useRef<boolean>(true);
   const knownMsgIdsRef = useRef<Set<string>>(new Set());
   const animatedNewMsgIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedInitialBatchRef = useRef<boolean>(false);
@@ -407,6 +433,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         fromId: env.fromId,
         toId: env.toId,
         text: result.text,
+        replyTo: result.replyTo,
         timestamp: env.timestamp,
         expiresAt: env.expiresAt,
         readAt: env.readAt,
@@ -470,6 +497,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         groupId: group.id,
         sender,
         text: result.text,
+        replyTo: result.replyTo,
         timestamp: env.timestamp,
         expiresAt: env.expiresAt,
         readAt: null,
@@ -534,7 +562,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               dec.fromId === session.user.id
                 ? 'Vous : '
                 : dec.sender
-                  ? `${dec.sender.displayName} : `
+                  ? `${getContactDisplayName(dec.sender, friendAliasesRef.current)} : `
                   : '';
             preview = `${prefix}${dec.text}`;
           }
@@ -565,10 +593,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       setFriendsSnapshot(snapshot);
     });
 
+    const unsubAliases = subscribeFriendAliases(session.user.id, (aliases) => {
+      setFriendAliases(aliases);
+    });
+
     return () => {
       unsubConvs();
       unsubGroups();
       unsubFriends();
+      unsubAliases();
     };
   }, [session.user.id, decryptEnvelope, decryptGroupEnvelope]);
 
@@ -584,7 +617,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     knownMsgIdsRef.current = new Set();
     animatedNewMsgIdsRef.current = new Set();
     hasLoadedInitialBatchRef.current = false;
+    isNearBottomRef.current = true;
     setSendError(null);
+    setReplyingTo(null);
+    setInChatSearchOpen(false);
+    setInChatSearchQuery('');
+    setActiveSearchMatchIdx(0);
+    setShowScrollToBottom(false);
+    setUnreadBelowCount(0);
     ttsStopRef.current();
 
     const target = activeTargetRef.current;
@@ -617,6 +657,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         }
       }
 
+      if (newlyArrived.length > 0 && !isNearBottomRef.current) {
+        setUnreadBelowCount((c) => c + newlyArrived.length);
+      }
+
       if (
         newlyArrived.length > 0 &&
         ttsAutoReadRef.current &&
@@ -641,7 +685,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         void Promise.all(envs.map((env) => decryptEnvelope(env, peer))).then(
           (decrypted) => {
             if (cancelled) return;
-            recordMessageBatch(decrypted, () => peer.displayName);
+            recordMessageBatch(decrypted, () =>
+              getContactDisplayName(peer, friendAliasesRef.current)
+            );
             setMessages(decrypted);
             setLoadingMessages(false);
             const hasUnread = decrypted.some(
@@ -670,7 +716,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       void Promise.all(envs.map((env) => decryptGroupEnvelope(env, latestGroup))).then(
         (decrypted) => {
           if (cancelled) return;
-          recordMessageBatch(decrypted, (m) => m.sender?.displayName);
+          recordMessageBatch(decrypted, (m) =>
+            m.sender
+              ? getContactDisplayName(m.sender, friendAliasesRef.current)
+              : undefined
+          );
           setMessages(decrypted);
           setLoadingMessages(false);
         }
@@ -690,91 +740,193 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   ]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setUnreadBelowCount(0);
+    }
   }, [messages.length, activeTargetId]);
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const el = messagesContainerRef.current?.querySelector(
+      `[data-msg-id="${CSS.escape(messageId)}"]`
+    );
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMsgId(messageId);
+    window.setTimeout(() => {
+      setHighlightedMsgId((curr) => (curr === messageId ? null : curr));
+    }, 1800);
+  }, []);
+
+  const searchMatches = useMemo(() => {
+    const q = inChatSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return messages
+      .filter((m) => !m.decryptionError && m.text.toLowerCase().includes(q))
+      .map((m) => m.id);
+  }, [inChatSearchQuery, messages]);
+
+  useEffect(() => {
+    if (searchMatches.length === 0) {
+      setActiveSearchMatchIdx(0);
+      return;
+    }
+    const clamped = Math.min(activeSearchMatchIdx, searchMatches.length - 1);
+    if (clamped !== activeSearchMatchIdx) {
+      setActiveSearchMatchIdx(clamped);
+    }
+  }, [searchMatches, activeSearchMatchIdx]);
+
+  // Global keyboard shortcuts (Ctrl/Cmd+K for sidebar search, Ctrl/Cmd+F for in-chat search, Esc to close search/reply)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        sidebarSearchRef.current?.focus();
+      } else if (
+        (e.metaKey || e.ctrlKey) &&
+        e.key.toLowerCase() === 'f' &&
+        activeTargetRef.current
+      ) {
+        e.preventDefault();
+        setInChatSearchOpen(true);
+        window.setTimeout(() => inChatSearchInputRef.current?.focus(), 20);
+      } else if (e.key === 'Escape') {
+        if (inChatSearchOpen) {
+          setInChatSearchOpen(false);
+          setInChatSearchQuery('');
+        } else if (replyingTo) {
+          setReplyingTo(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [inChatSearchOpen, replyingTo]);
 
   // Real-time WebSocket connection for WebRTC call signaling & live typing indicators
   useEffect(() => {
     let closedByUser = false;
     let reconnectTimer: number | null = null;
+    let pingTimer: number | null = null;
+    let connecting = false;
     let attempt = 0;
 
     async function connect() {
-      const freshToken = (await getFreshFirebaseIdToken()) || session.token;
-      if (closedByUser) return;
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(
-        freshToken
-      )}`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      if (closedByUser || connecting) return;
+      connecting = true;
+      try {
+        const freshToken = (await getFreshFirebaseIdToken()) || session.token;
+        if (closedByUser) return;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(
+          freshToken
+        )}`;
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-      ws.onopen = () => {
-        attempt = 0;
-      };
-
-      ws.onmessage = async (event) => {
-        try {
-          const payload = JSON.parse(String(event.data)) as {
-            type: string;
-            groupId?: string;
-            fromId?: string;
-            isTyping?: boolean;
-            callId?: string;
-            caller?: PublicUser;
-            callType?: 'audio' | 'video';
-            sdp?: RTCSessionDescriptionInit;
-            candidate?: RTCIceCandidateInit;
-            reason?: string;
-            audioMuted?: boolean;
-            videoEnabled?: boolean;
-          };
-
-          if (payload.type.startsWith('call:')) {
-            void handleCallSignalRef.current(payload as CallSignalPayload);
-            return;
-          }
-
-          if (payload.type === 'typing:state' && payload.fromId) {
-            if (payload.groupId) {
-              const grp = groupsRef.current.find(
-                (item) => item.group.id === payload.groupId
-              )?.group;
-              const senderName =
-                grp?.members.find((m) => m.id === payload.fromId)?.displayName ??
-                null;
-              setTypingGroups((prev) => ({
-                ...prev,
-                [payload.groupId!]: payload.isTyping ? senderName : null,
-              }));
-            } else {
-              setTypingPeers((prev) => ({
-                ...prev,
-                [payload.fromId!]: Boolean(payload.isTyping),
-              }));
+        ws.onopen = () => {
+          attempt = 0;
+          if (pingTimer) window.clearInterval(pingTimer);
+          pingTimer = window.setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'ws:ping' }));
             }
-          }
-        } catch {
-          // Ignore malformed frame
-        }
-      };
+          }, 20000);
+        };
 
-      ws.onclose = () => {
-        if (!closedByUser) {
-          const delay = Math.min(1000 * Math.pow(1.6, attempt), 10000);
-          attempt += 1;
-          reconnectTimer = window.setTimeout(() => {
-            void connect();
-          }, delay);
-        }
-      };
+        ws.onmessage = async (event) => {
+          try {
+            const payload = JSON.parse(String(event.data)) as {
+              type: string;
+              groupId?: string;
+              fromId?: string;
+              isTyping?: boolean;
+              callId?: string;
+              caller?: PublicUser;
+              callType?: 'audio' | 'video';
+              sdp?: RTCSessionDescriptionInit;
+              candidate?: RTCIceCandidateInit;
+              reason?: string;
+              audioMuted?: boolean;
+              videoEnabled?: boolean;
+              pushSent?: boolean;
+            };
+
+            if (payload.type === 'ws:pong') return;
+
+            if (payload.type.startsWith('call:')) {
+              void handleCallSignalRef.current(payload as CallSignalPayload);
+              return;
+            }
+
+            if (payload.type === 'typing:state' && payload.fromId) {
+              if (payload.groupId) {
+                const grp = groupsRef.current.find(
+                  (item) => item.group.id === payload.groupId
+                )?.group;
+                const member = grp?.members.find((m) => m.id === payload.fromId);
+                const senderName = member
+                  ? getContactDisplayName(member, friendAliasesRef.current)
+                  : null;
+                setTypingGroups((prev) => ({
+                  ...prev,
+                  [payload.groupId!]: payload.isTyping ? senderName : null,
+                }));
+              } else {
+                setTypingPeers((prev) => ({
+                  ...prev,
+                  [payload.fromId!]: Boolean(payload.isTyping),
+                }));
+              }
+            }
+          } catch {
+            // Ignore malformed frame
+          }
+        };
+
+        ws.onclose = () => {
+          if (pingTimer) {
+            window.clearInterval(pingTimer);
+            pingTimer = null;
+          }
+          if (!closedByUser) {
+            const delay = Math.min(1000 * Math.pow(1.6, attempt), 10000);
+            attempt += 1;
+            reconnectTimer = window.setTimeout(() => {
+              void connect();
+            }, delay);
+          }
+        };
+      } finally {
+        connecting = false;
+      }
     }
 
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)
+      ) {
+        if (reconnectTimer) {
+          window.clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        attempt = 0;
+        void connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleVisibility);
     void connect();
 
     return () => {
       closedByUser = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleVisibility);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (pingTimer) window.clearInterval(pingTimer);
       wsRef.current?.close();
     };
   }, [session.token]);
@@ -906,6 +1058,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     await unblockUserInFirestore(session.user.id, targetUserId);
   }
 
+  async function handleSaveFriendAlias(targetUserId: string, nickname: string) {
+    await setFriendAliasInFirestore(session.user.id, targetUserId, nickname);
+  }
+
   function emitTyping(isTyping: boolean) {
     if (!activeTarget) return;
     if (wsRef.current?.readyState !== WebSocket.OPEN) return;
@@ -954,9 +1110,25 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
     const id = window.crypto.randomUUID();
     const timestamp = Date.now();
+    const currentReply = replyingTo;
+    const replyRef: ReplyReference | undefined = currentReply
+      ? {
+          id: currentReply.id,
+          senderName:
+            currentReply.fromId === session.user.id
+              ? 'Vous'
+              : currentReply.sender
+                ? getContactDisplayName(currentReply.sender, friendAliases)
+                : activeTarget.kind === 'dm'
+                  ? getContactDisplayName(activeTarget.peer, friendAliases)
+                  : 'Membre',
+          excerpt: currentReply.text.replace(/\s+/g, ' ').trim().slice(0, 140),
+        }
+      : undefined;
+
+    isNearBottomRef.current = true;
 
     try {
-
       if (activeTarget.kind === 'dm') {
         const peer = activeTarget.peer;
         const encrypted = await encryptAndSignMessage({
@@ -964,6 +1136,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           fromId: session.user.id,
           toId: peer.id,
           plaintext: trimmed,
+          replyTo: replyRef,
           timestamp,
           myEcdhPrivateKey: session.ecdhPrivateKey,
           myEcdsaPrivateKey: session.ecdsaPrivateKey,
@@ -976,6 +1149,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           fromId: session.user.id,
           toId: peer.id,
           text: trimmed,
+          replyTo: replyRef,
           timestamp,
           expiresAt:
             ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
@@ -992,6 +1166,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
         setComposerText('');
+        setReplyingTo(null);
 
         const savedEnv = await sendDirectMessageInFirestore({
           id,
@@ -1038,6 +1213,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           groupId: group.id,
           fromId: session.user.id,
           plaintext: trimmed,
+          replyTo: replyRef,
           timestamp,
           groupAesKey: groupKey,
           myEcdsaPrivateKey: session.ecdsaPrivateKey,
@@ -1051,6 +1227,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           groupId: group.id,
           sender: session.user,
           text: trimmed,
+          replyTo: replyRef,
           timestamp,
           expiresAt:
             ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
@@ -1067,6 +1244,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
         setComposerText('');
+        setReplyingTo(null);
 
         const savedGroupEnv = await sendGroupMessageInFirestore({
           id,
@@ -1108,6 +1286,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== id));
       setComposerText((prev) => (prev ? prev : trimmed));
+      if (currentReply) {
+        setReplyingTo((prev) => prev ?? currentReply);
+      }
       setSendError(err instanceof Error ? err.message : "Erreur d'envoi.");
     } finally {
       setSending(false);
@@ -1203,8 +1384,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
     if (sidebarTab === 'all' || sidebarTab === 'direct') {
       for (const conv of conversations) {
+        const alias = friendAliases[conv.peer.id]?.toLowerCase() ?? '';
         if (
           !q ||
+          alias.includes(q) ||
           conv.peer.displayName.toLowerCase().includes(q) ||
           conv.peer.handle.toLowerCase().includes(q)
         ) {
@@ -1236,7 +1419,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
 
     return list.sort((a, b) => b.sortTs - a.sortTs);
-  }, [conversations, groups, sidebarFilter, sidebarTab, session.user.id]);
+  }, [conversations, groups, sidebarFilter, sidebarTab, session.user.id, friendAliases]);
 
   const activePeer = activeTarget?.kind === 'dm' ? activeTarget.peer : null;
   const activeGroup = activeTarget?.kind === 'group' ? activeTarget.group : null;
@@ -1297,27 +1480,27 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               </button>
             )}
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
               title="Personnaliser le profil et l'apparence"
               aria-label="Personnaliser le profil"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
-              <SlidersHorizontal className="h-4 w-4" />
+              <SlidersHorizontal className="h-4 w-4" strokeWidth={1.75} />
             </button>
             <button
               type="button"
               onClick={() => setIsNotificationsModalOpen(true)}
               title="Notifications push en arrière-plan"
               aria-label="Notifications push"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               {push.isSubscribed && push.permission === 'granted' ? (
-                <BellRing className="h-4 w-4 text-emerald-400" />
+                <BellRing className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
               ) : (
-                <Bell className="h-4 w-4" />
+                <Bell className="h-4 w-4" strokeWidth={1.75} />
               )}
             </button>
             <button
@@ -1325,15 +1508,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               onClick={handleLockSession}
               title="Verrouiller la session et effacer les clés de la mémoire"
               aria-label="Verrouiller la session"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
-              <Lock className="h-3.5 w-3.5" />
+              <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
           </div>
         </div>
 
         {/* User Profile Card with Banner */}
-        <div className="relative overflow-hidden border-b border-white/[0.07]">
+        <div className="relative overflow-hidden border-b border-white/[0.06]">
           <ProfileBanner
             user={session.user}
             className="h-14"
@@ -1362,7 +1545,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               type="button"
               onClick={handleCopyOwnHandle}
               title="Copier votre identifiant public"
-              className="shrink-0 min-h-[34px] flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:bg-white/[0.09] hover:text-white transition-colors cursor-pointer"
+              className="shrink-0 min-h-[32px] flex items-center gap-1.5 rounded-lg bg-white/[0.03] px-2 py-1 font-mono text-[11px] text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer"
             >
               <span className="max-w-[92px] truncate">{session.user.handle}</span>
               {copiedHandle ? (
@@ -1379,15 +1562,26 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <div className="relative flex items-center glass-input rounded-xl">
             <Search className="ml-3 h-3.5 w-3.5 text-zinc-500 shrink-0" />
             <input
+              ref={sidebarSearchRef}
               type="text"
               value={sidebarFilter}
               onChange={(e) => setSidebarFilter(e.target.value)}
-              placeholder="Filtrer discussions et groupes..."
+              placeholder="Filtrer discussions et groupes... (⌘K)"
               className="w-full bg-transparent px-2.5 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
             />
+            {sidebarFilter && (
+              <button
+                type="button"
+                onClick={() => setSidebarFilter('')}
+                aria-label="Effacer le filtre"
+                className="mr-2 p-1 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.03] p-1 border border-white/[0.06]">
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.025] p-1 border border-white/[0.05]">
             {(
               [
                 { key: 'all', label: 'Tout' },
@@ -1401,8 +1595,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 onClick={() => setSidebarTab(t.key)}
                 className={`rounded-lg py-1.5 px-2 text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer ${
                   sidebarTab === t.key
-                    ? 'bg-white text-zinc-950'
-                    : 'text-zinc-400 hover:text-white'
+                    ? 'bg-white/[0.11] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
+                    : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
                 {t.label}
@@ -1457,10 +1651,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => handleSelectPeer(conv.peer)}
-                    className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
+                    className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors cursor-pointer border ${
                       isSelected
-                        ? 'bg-white/[0.08] border-white/[0.12] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]'
-                        : 'border-transparent hover:bg-white/[0.04]'
+                        ? 'bg-white/[0.075] border-white/[0.11] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]'
+                        : 'border-transparent hover:bg-white/[0.035]'
                     }`}
                   >
                     <UserAvatar
@@ -1472,7 +1666,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="text-sm font-medium text-white truncate">
-                          {isSelf ? 'Notes chiffrées' : conv.peer.displayName}
+                          {isSelf
+                            ? 'Notes chiffrées'
+                            : getContactDisplayName(conv.peer, friendAliases)}
                         </span>
                         {conv.lastTimestamp && (
                           <span className="font-mono text-[11px] text-zinc-500 tabular-nums shrink-0">
@@ -1485,10 +1681,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                           {conv.lastMessagePreview ??
                             (isSelf
                               ? 'Coffre-fort personnel'
-                              : conv.peer.bio || conv.peer.handle)}
+                              : friendAliases[conv.peer.id]?.trim()
+                                ? `${conv.peer.displayName} · ${conv.peer.handle}`
+                                : conv.peer.bio || conv.peer.handle)}
                         </p>
                         {conv.unreadCount > 0 && (
-                          <span className="shrink-0 font-mono text-[11px] font-semibold text-white bg-white/15 px-1.5 py-0.5 rounded-md tabular-nums">
+                          <span className="shrink-0 font-mono text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-500/25 px-1.5 py-0.5 rounded-md tabular-nums">
                             {conv.unreadCount}
                           </span>
                         )}
@@ -1506,10 +1704,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   key={item.id}
                   type="button"
                   onClick={() => handleSelectGroup(sg.group)}
-                  className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
+                  className={`w-full min-h-[60px] flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors cursor-pointer border ${
                     isSelected
-                      ? 'bg-white/[0.08] border-white/[0.12] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]'
-                      : 'border-transparent hover:bg-white/[0.04]'
+                      ? 'bg-white/[0.075] border-white/[0.11] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]'
+                      : 'border-transparent hover:bg-white/[0.035]'
                   }`}
                 >
                   <GroupAvatar group={sg.group} size="md" />
@@ -1541,25 +1739,25 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         </div>
 
         {/* Bottom quick actions + Desktop/Phone App Installer */}
-        <div className="border-t border-white/[0.07] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
+        <div className="border-t border-white/[0.06] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
           <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               onClick={() => setIsContactModalOpen(true)}
-              className="min-h-[42px] flex items-center justify-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 px-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.07] transition-colors cursor-pointer whitespace-nowrap"
+              className="min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.025] py-2 px-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               <span>Contact</span>
             </button>
             <button
               type="button"
               onClick={() => setIsFriendsModalOpen(true)}
-              className="relative min-h-[42px] flex items-center justify-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 px-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.07] transition-colors cursor-pointer whitespace-nowrap"
+              className="relative min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.025] py-2 px-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
             >
-              <UserPlus className="h-3.5 w-3.5 shrink-0" />
+              <UserPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               <span>Amis</span>
               {friendsSnapshot.incoming.length > 0 && (
-                <span className="font-mono text-[10px] font-semibold bg-white text-zinc-950 px-1.5 rounded-full tabular-nums">
+                <span className="font-mono text-[10px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-500/25 px-1.5 rounded-md tabular-nums">
                   {friendsSnapshot.incoming.length}
                 </span>
               )}
@@ -1567,9 +1765,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => setIsCreateGroupOpen(true)}
-              className="min-h-[42px] flex items-center justify-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 px-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.07] transition-colors cursor-pointer whitespace-nowrap"
+              className="min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.025] py-2 px-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Users className="h-3.5 w-3.5 shrink-0" />
+              <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               <span>Groupe</span>
             </button>
           </div>
@@ -1587,14 +1785,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <>
             {/* Conversation Header */}
             <header
-              className={`flex items-center justify-between gap-3 border-b border-white/[0.08] ${glassSurfaceClass} px-3 sm:px-6 py-3`}
+              className={`flex items-center justify-between gap-2 sm:gap-3 border-b border-white/[0.06] ${glassSurfaceClass} px-2.5 sm:px-6 py-2.5 sm:py-3`}
             >
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <button
                   type="button"
                   onClick={() => setMobileShowChat(false)}
                   aria-label="Retour aux conversations"
-                  className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.06] hover:text-white cursor-pointer"
+                  className="md:hidden h-10 w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.06] hover:text-white cursor-pointer shrink-0"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
@@ -1616,10 +1814,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       <h1 className="font-[family-name:var(--font-display)] text-sm sm:text-base font-semibold text-white truncate">
                         {isSelfSelected
                           ? 'Notes chiffrées (Coffre personnel)'
-                          : activePeer.displayName}
+                          : getContactDisplayName(activePeer, friendAliases)}
                       </h1>
                       <div className="flex items-center gap-2 text-xs text-zinc-400">
-                        <span className="font-mono truncate">{activePeer.handle}</span>
+                        <span className="font-mono truncate">
+                          {!isSelfSelected && friendAliases[activePeer.id]?.trim()
+                            ? `${activePeer.handle} · ${activePeer.displayName}`
+                            : activePeer.handle}
+                        </span>
                         {isPeerTyping && (
                           <>
                             <span aria-hidden="true">·</span>
@@ -1681,10 +1883,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 ) : null}
               </div>
 
-              {/* Right Controls: Ephemeral Timer & Verification / Group Members */}
-              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                <div className="hidden sm:flex items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
-                  <Clock className="ml-2 mr-1 h-3.5 w-3.5 text-zinc-400" />
+              {/* Right Controls: Ephemeral Timer & Minimalist Action Cluster */}
+              <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
+                <div className="hidden sm:flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.025] p-1 mr-1">
+                  <Clock className="ml-2 mr-1 h-3.5 w-3.5 text-zinc-500" />
                   {EPHEMERAL_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
@@ -1692,14 +1894,38 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       onClick={() => setEphemeralDuration(opt.value)}
                       className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer ${
                         ephemeralDuration === opt.value
-                          ? 'bg-white text-zinc-950'
-                          : 'text-zinc-400 hover:text-white'
+                          ? 'bg-white/[0.12] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
+                          : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
                       {opt.label}
                     </button>
                   ))}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInChatSearchOpen((prev) => {
+                      const next = !prev;
+                      if (next) {
+                        window.setTimeout(() => inChatSearchInputRef.current?.focus(), 20);
+                      } else {
+                        setInChatSearchQuery('');
+                      }
+                      return next;
+                    });
+                  }}
+                  title="Rechercher dans la conversation"
+                  aria-label="Rechercher dans la conversation"
+                  className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
+                    inChatSearchOpen
+                      ? 'bg-white/[0.12] text-white'
+                      : 'text-zinc-400 hover:bg-white/[0.07] hover:text-white'
+                  }`}
+                >
+                  <Search className="h-4 w-4" strokeWidth={1.75} />
+                </button>
 
                 {tts.supported && (
                   <button
@@ -1716,22 +1942,22 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         : 'Activer la lecture vocale automatique'
                     }
                     aria-pressed={tts.autoRead}
-                    className={`min-h-[38px] min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] flex items-center justify-center rounded-xl border px-2 sm:px-2.5 py-2 transition-colors cursor-pointer ${
+                    className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
                       tts.autoRead
-                        ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-                        : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09] hover:text-white'
+                        ? 'bg-emerald-500/15 text-emerald-300'
+                        : 'text-zinc-400 hover:bg-white/[0.07] hover:text-white'
                     }`}
                   >
                     {tts.autoRead ? (
-                      <Volume2 className="h-4 w-4" />
+                      <Volume2 className="h-4 w-4" strokeWidth={1.75} />
                     ) : (
-                      <VolumeX className="h-4 w-4" />
+                      <VolumeX className="h-4 w-4" strokeWidth={1.75} />
                     )}
                   </button>
                 )}
 
                 {activePeer ? (
-                  <div className="flex items-center gap-1 sm:gap-1.5">
+                  <div className="flex items-center gap-0.5 sm:gap-1">
                     {!isSelfSelected &&
                       getRelationship(activePeer.id) !== 'blocked_by_me' &&
                       getRelationship(activePeer.id) !== 'blocked_by_peer' && (
@@ -1742,9 +1968,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             disabled={call.phase !== 'idle'}
                             title="Appel audio en temps réel"
                             aria-label="Appel audio en temps réel"
-                            className="min-h-[38px] min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2 sm:px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                            className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
                           >
-                            <Phone className="h-4 w-4" />
+                            <Phone className="h-4 w-4" strokeWidth={1.75} />
                           </button>
                           <button
                             type="button"
@@ -1752,41 +1978,44 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             disabled={call.phase !== 'idle'}
                             title="Appel vidéo en temps réel"
                             aria-label="Appel vidéo en temps réel"
-                            className="min-h-[38px] min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] flex items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.04] px-2 sm:px-2.5 py-2 text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                            className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
                           >
-                            <Video className="h-4 w-4" />
+                            <Video className="h-4 w-4" strokeWidth={1.75} />
                           </button>
                         </>
                       )}
                     <button
                       type="button"
                       onClick={() => setIsSecurityModalOpen(true)}
-                      className="min-h-[38px] min-w-[38px] sm:min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-2 sm:px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                      title="Vérifier le chiffrement E2EE"
+                      aria-label="Vérifier le chiffrement E2EE"
+                      className="h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] sm:px-3 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] transition-colors whitespace-nowrap cursor-pointer ml-0.5"
                     >
-                      <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                      <ShieldCheck className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
                       <span className="hidden sm:inline">Vérifier E2EE</span>
                     </button>
                   </div>
                 ) : activeGroup ? (
-                  <div className="flex items-center gap-1 sm:gap-1.5">
+                  <div className="flex items-center gap-0.5 sm:gap-1">
                     <button
                       type="button"
                       onClick={() => setInspectorMode((v) => !v)}
                       title="Inspecter les paquets chiffrés"
-                      className={`min-h-[38px] min-w-[38px] sm:min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border px-2.5 sm:px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                      aria-label="Inspecter les paquets chiffrés"
+                      className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
                         inspectorMode
-                          ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-                          : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09]'
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : 'text-zinc-400 hover:bg-white/[0.08] hover:text-white'
                       }`}
                     >
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-4 w-4" strokeWidth={1.75} />
                     </button>
                     <button
                       type="button"
                       onClick={() => setIsGroupInfoOpen(true)}
-                      className="min-h-[38px] min-w-[38px] sm:min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-2.5 sm:px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.09] transition-colors whitespace-nowrap cursor-pointer"
+                      className="h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] sm:px-3 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] transition-colors whitespace-nowrap cursor-pointer ml-0.5"
                     >
-                      <Users className="h-4 w-4 text-zinc-200" />
+                      <Users className="h-4 w-4 text-zinc-200" strokeWidth={1.75} />
                       <span className="hidden sm:inline">Membres</span>
                     </button>
                   </div>
@@ -1836,8 +2065,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             )}
 
             {/* Mobile Ephemeral Selector Bar */}
-            <div className="sm:hidden flex items-center justify-between gap-2 border-b border-white/[0.06] bg-white/[0.015] px-3 py-2">
-              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400 whitespace-nowrap shrink-0">
+            <div className="sm:hidden flex items-center justify-between gap-2 border-b border-white/[0.05] bg-white/[0.01] px-3 py-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 whitespace-nowrap shrink-0">
                 <Clock className="h-3 w-3 shrink-0" />
                 <span>Éphémère</span>
               </span>
@@ -1847,10 +2076,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     key={opt.value}
                     type="button"
                     onClick={() => setEphemeralDuration(opt.value)}
-                    className={`min-h-[30px] rounded-md px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                    className={`min-h-[28px] rounded-lg px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
                       ephemeralDuration === opt.value
-                        ? 'bg-white text-zinc-950'
-                        : 'text-zinc-400 hover:text-white'
+                        ? 'bg-white/[0.12] text-white border border-white/[0.1]'
+                        : 'text-zinc-400 hover:text-white border border-transparent'
                     }`}
                   >
                     {opt.value === 0
@@ -1865,283 +2094,462 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               </div>
             </div>
 
-            {/* Messages Stream */}
-            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-3">
-              {loadingMessages ? (
-                <div className="flex h-full items-center justify-center">
-                  <p className="text-xs text-zinc-500">
-                    Déchiffrement local des messages...
-                  </p>
-                </div>
-              ) : messages.length === 0 ? (
-                <div className="flex h-full items-center justify-center">
-                  <div className="glass-surface max-w-md w-full overflow-hidden rounded-2xl text-center">
-                    {activePeer ? (
-                      <>
-                        <ProfileBanner user={activePeer} className="h-24" />
-                        <div className="px-6 pb-6">
-                          <div className="-mt-7 mx-auto mb-3 inline-flex rounded-full p-1 bg-[#0a0a0e] border border-white/10">
-                            <UserAvatar
-                              user={activePeer}
-                              isSelfVault={isSelfSelected}
-                              size="md"
-                            />
-                          </div>
-                          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
-                            {isSelfSelected
-                              ? 'Votre coffre de notes chiffrées'
-                              : `Canal chiffré avec ${activePeer.displayName}`}
-                          </h2>
-                          {!isSelfSelected && activePeer.biography && (
-                            <p className="mt-2 text-xs text-zinc-300 leading-relaxed whitespace-pre-line line-clamp-3">
-                              {activePeer.biography}
-                            </p>
-                          )}
-                          <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                            {isSelfSelected
-                              ? 'Enregistrez ici vos notes privées. Elles sont chiffrées localement avec votre clé avant d’être stockées.'
-                              : 'Chaque message est chiffré en AES-256-GCM via votre secret partagé ECDH P-256 et signé numériquement.'}
-                          </p>
-                        </div>
-                      </>
-                    ) : activeGroup ? (
-                      <>
-                        <ProfileBanner
-                          user={{
-                            displayName: activeGroup.name,
-                            bannerPreset: activeGroup.bannerPreset,
-                            bannerDataUrl: activeGroup.bannerDataUrl ?? null,
-                          }}
-                          className="h-24"
-                        />
-                        <div className="px-6 pb-6">
-                          <div className="-mt-8 mx-auto mb-3 inline-flex rounded-2xl p-1 bg-[#0a0a0e] border border-white/15">
-                            <GroupAvatar group={activeGroup} size="md" />
-                          </div>
-                          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
-                            {activeGroup.name}
-                          </h2>
-                          <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                            Groupe chiffré de bout en bout ({activeGroup.members.length}{' '}
-                            membre{activeGroup.members.length > 1 ? 's' : ''}). La clé AES-256-GCM du groupe est protégée par ECDH P-256 pour chaque membre.
-                          </p>
-                        </div>
-                      </>
-                    ) : null}
+            {/* In-Thread Encrypted Message Search Bar */}
+            {inChatSearchOpen && (
+              <div className="flex items-center gap-2 border-b border-white/[0.07] bg-white/[0.025] px-3 sm:px-6 py-2">
+                <Search className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                <input
+                  ref={inChatSearchInputRef}
+                  type="text"
+                  value={inChatSearchQuery}
+                  onChange={(e) => {
+                    setInChatSearchQuery(e.target.value);
+                    setActiveSearchMatchIdx(0);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && searchMatches.length > 0) {
+                      e.preventDefault();
+                      const nextIdx = e.shiftKey
+                        ? (activeSearchMatchIdx - 1 + searchMatches.length) %
+                          searchMatches.length
+                        : (activeSearchMatchIdx + 1) % searchMatches.length;
+                      setActiveSearchMatchIdx(nextIdx);
+                      scrollToMessage(searchMatches[nextIdx]);
+                    }
+                  }}
+                  placeholder="Rechercher dans les messages déchiffrés..."
+                  className="flex-1 bg-transparent text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+                />
+                {inChatSearchQuery.trim() && (
+                  <span className="font-mono text-[11px] text-zinc-400 tabular-nums whitespace-nowrap">
+                    {searchMatches.length === 0
+                      ? '0 résultat'
+                      : `${activeSearchMatchIdx + 1}/${searchMatches.length}`}
+                  </span>
+                )}
+                {searchMatches.length > 0 && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prevIdx =
+                          (activeSearchMatchIdx - 1 + searchMatches.length) %
+                          searchMatches.length;
+                        setActiveSearchMatchIdx(prevIdx);
+                        scrollToMessage(searchMatches[prevIdx]);
+                      }}
+                      aria-label="Résultat précédent"
+                      className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:text-white cursor-pointer"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextIdx =
+                          (activeSearchMatchIdx + 1) % searchMatches.length;
+                        setActiveSearchMatchIdx(nextIdx);
+                        scrollToMessage(searchMatches[nextIdx]);
+                      }}
+                      aria-label="Résultat suivant"
+                      className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:text-white cursor-pointer"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                </div>
-              ) : (
-                messages.map((msg, idx) => {
-                  const isMine = msg.fromId === session.user.id;
-                  const showGroupSender = Boolean(msg.groupId && !isMine && msg.sender);
-                  const isNewEntry = animatedNewMsgIdsRef.current.has(msg.id);
-                  const prevMsg = idx > 0 ? messages[idx - 1] : null;
-                  const showDaySeparator =
-                    !prevMsg || getDayKey(prevMsg.timestamp) !== getDayKey(msg.timestamp);
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInChatSearchOpen(false);
+                    setInChatSearchQuery('');
+                  }}
+                  aria-label="Fermer la recherche"
+                  className="h-7 w-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
 
-                  return (
-                    <React.Fragment key={msg.id}>
-                      {showDaySeparator && (
-                        <div className="flex items-center gap-3 py-2" aria-label={formatDayLabel(msg.timestamp)}>
-                          <div className="h-px flex-1 bg-white/[0.06]" />
-                          <span className="text-[11px] font-medium text-zinc-500 whitespace-nowrap">
-                            {formatDayLabel(msg.timestamp)}
-                          </span>
-                          <div className="h-px flex-1 bg-white/[0.06]" />
-                        </div>
-                      )}
+            {/* Messages Stream */}
+            <div className="relative flex-1 min-h-0 flex flex-col">
+              <div
+                ref={messagesContainerRef}
+                onScroll={() => {
+                  const el = messagesContainerRef.current;
+                  if (!el) return;
+                  const distFromBottom =
+                    el.scrollHeight - el.scrollTop - el.clientHeight;
+                  const nearBottom = distFromBottom < 140;
+                  isNearBottomRef.current = nearBottom;
+                  setShowScrollToBottom(!nearBottom);
+                  if (nearBottom) {
+                    setUnreadBelowCount(0);
+                  }
+                }}
+                className="flex-1 overflow-y-auto px-4 sm:px-6 py-5"
+              >
+                {loadingMessages ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-xs text-zinc-500">
+                      Déchiffrement local des messages...
+                    </p>
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="glass-surface max-w-md w-full overflow-hidden rounded-2xl text-center">
+                      {activePeer ? (
+                        <>
+                          <ProfileBanner user={activePeer} className="h-24" />
+                          <div className="px-6 pb-6">
+                            <div className="-mt-7 mx-auto mb-3 inline-flex rounded-full p-1 bg-[#0a0a0e] border border-white/10">
+                              <UserAvatar
+                                user={activePeer}
+                                isSelfVault={isSelfSelected}
+                                size="md"
+                              />
+                            </div>
+                            <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                              {isSelfSelected
+                                ? 'Votre coffre de notes chiffrées'
+                                : `Canal chiffré avec ${getContactDisplayName(activePeer, friendAliases)}`}
+                            </h2>
+                            {!isSelfSelected && activePeer.biography && (
+                              <p className="mt-2 text-xs text-zinc-300 leading-relaxed whitespace-pre-line line-clamp-3">
+                                {activePeer.biography}
+                              </p>
+                            )}
+                            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+                              {isSelfSelected
+                                ? 'Enregistrez ici vos notes privées. Elles sont chiffrées localement avec votre clé avant d’être stockées.'
+                                : 'Chaque message est chiffré en AES-256-GCM via votre secret partagé ECDH P-256 et signé numériquement.'}
+                            </p>
+                          </div>
+                        </>
+                      ) : activeGroup ? (
+                        <>
+                          <ProfileBanner
+                            user={{
+                              displayName: activeGroup.name,
+                              bannerPreset: activeGroup.bannerPreset,
+                              bannerDataUrl: activeGroup.bannerDataUrl ?? null,
+                            }}
+                            className="h-24"
+                          />
+                          <div className="px-6 pb-6">
+                            <div className="-mt-8 mx-auto mb-3 inline-flex rounded-2xl p-1 bg-[#0a0a0e] border border-white/15">
+                              <GroupAvatar group={activeGroup} size="md" />
+                            </div>
+                            <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                              {activeGroup.name}
+                            </h2>
+                            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+                              Groupe chiffré de bout en bout ({activeGroup.members.length}{' '}
+                              membre{activeGroup.members.length > 1 ? 's' : ''}). La clé AES-256-GCM du groupe est protégée par ECDH P-256 pour chaque membre.
+                            </p>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  messages.map((msg, idx) => {
+                    const isMine = msg.fromId === session.user.id;
+                    const isNewEntry = animatedNewMsgIdsRef.current.has(msg.id);
+                    const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                    const showDaySeparator =
+                      !prevMsg || getDayKey(prevMsg.timestamp) !== getDayKey(msg.timestamp);
+                    const isClusteredWithPrev = Boolean(
+                      prevMsg &&
+                        !showDaySeparator &&
+                        prevMsg.fromId === msg.fromId &&
+                        msg.timestamp - prevMsg.timestamp < 120_000
+                    );
+                    const showGroupSender = Boolean(
+                      msg.groupId && !isMine && msg.sender && !isClusteredWithPrev
+                    );
+                    const isSearchMatch =
+                      inChatSearchQuery.trim().length > 0 &&
+                      searchMatches.includes(msg.id);
+                    const isActiveSearchMatch =
+                      isSearchMatch &&
+                      searchMatches[activeSearchMatchIdx] === msg.id;
+                    const isHighlighted = highlightedMsgId === msg.id;
 
-                      <div
-                        className={`group flex flex-col ${
-                          isNewEntry ? 'animate-msg-enter' : 'animate-msg-history'
-                        } ${isMine ? 'items-end' : 'items-start'}`}
-                      >
-                        {showGroupSender && msg.sender && (
-                          <button
-                            type="button"
-                            onClick={() => setViewedProfileUser(msg.sender!)}
-                            className="mb-1 ml-1 flex items-center gap-1.5 hover:opacity-90 cursor-pointer"
+                    return (
+                      <React.Fragment key={msg.id}>
+                        {showDaySeparator && (
+                          <div
+                            className={`flex items-center gap-3 py-2 ${
+                              idx > 0 ? 'mt-3' : ''
+                            }`}
+                            aria-label={formatDayLabel(msg.timestamp)}
                           >
-                            <UserAvatar user={msg.sender} size="sm" />
-                            <span className="text-xs font-medium text-zinc-300 hover:text-white">
-                              {msg.sender.displayName}
+                            <div className="h-px flex-1 bg-white/[0.06]" />
+                            <span className="text-[11px] font-medium text-zinc-500 whitespace-nowrap">
+                              {formatDayLabel(msg.timestamp)}
                             </span>
-                            <span className="font-mono text-[10px] text-zinc-500">
-                              {msg.sender.handle}
-                            </span>
-                          </button>
+                            <div className="h-px flex-1 bg-white/[0.06]" />
+                          </div>
                         )}
 
                         <div
-                          className={`relative max-w-[85%] sm:max-w-[68%] rounded-2xl px-4 py-2.5 backdrop-blur-xl transition-colors ${
-                            isMine
-                              ? `${myTone.bubbleBg} border ${myTone.bubbleBorder} text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]`
-                              : 'bg-white/[0.04] border border-white/[0.08] text-zinc-100 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]'
-                          }`}
+                          data-msg-id={msg.id}
+                          className={`group flex flex-col ${
+                            isClusteredWithPrev ? 'mt-1' : 'mt-3'
+                          } ${
+                            isNewEntry ? 'animate-msg-enter' : 'animate-msg-history'
+                          } ${isMine ? 'items-end' : 'items-start'}`}
                         >
-                          <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words">
-                            {msg.text}
-                          </p>
-
-                          {inspectorMode && (
-                            <div className="mt-2.5 pt-2 border-t border-white/[0.1] font-mono text-[10px] text-zinc-400 space-y-1 break-all">
-                              <div>
-                                <span className="text-zinc-500">AES-256-GCM: </span>
-                                <span>{msg.rawCiphertext}</span>
-                              </div>
-                              <div>
-                                <span className="text-zinc-500">IV: </span>
-                                <span>{msg.rawIv}</span>
-                              </div>
-                            </div>
+                          {showGroupSender && msg.sender && (
+                            <button
+                              type="button"
+                              onClick={() => setViewedProfileUser(msg.sender!)}
+                              className="mb-1 ml-1 flex items-center gap-1.5 hover:opacity-90 cursor-pointer"
+                            >
+                              <UserAvatar user={msg.sender} size="sm" />
+                              <span className="text-xs font-medium text-zinc-300 hover:text-white">
+                                {getContactDisplayName(msg.sender, friendAliases)}
+                              </span>
+                              <span className="font-mono text-[10px] text-zinc-500">
+                                {msg.sender.handle}
+                              </span>
+                            </button>
                           )}
 
                           <div
-                            className={`mt-1.5 flex items-center gap-2 text-[11px] ${
-                              isMine ? 'text-zinc-300/80 justify-end' : 'text-zinc-500'
+                            className={`relative max-w-[85%] sm:max-w-[68%] rounded-2xl px-4 py-2.5 backdrop-blur-xl transition-colors ${
+                              isMine
+                                ? `${myTone.bubbleBg} border ${myTone.bubbleBorder} text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]`
+                                : 'bg-white/[0.035] border border-white/[0.065] text-zinc-100 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]'
+                            } ${
+                              isActiveSearchMatch || isHighlighted
+                                ? 'ring-2 ring-emerald-400/70'
+                                : isSearchMatch
+                                  ? 'ring-1 ring-white/30'
+                                  : ''
                             }`}
                           >
-                            <span className="font-mono tabular-nums">
-                              {formatTime(msg.timestamp)}
-                            </span>
-
-                            {msg.verified && (
-                              <span
-                                title="Signature ECDSA vérifiée"
-                                className="inline-flex items-center gap-0.5 text-emerald-400/90"
-                              >
-                                <UserCheck className="h-3 w-3" />
-                              </span>
-                            )}
-
-                            {msg.expiresAt !== null && (
-                              <span className="inline-flex items-center gap-1 font-mono text-amber-300/90 tabular-nums">
-                                <Clock className="h-3 w-3" />
-                                {formatRemaining(msg.expiresAt, nowTick)}
-                              </span>
-                            )}
-
-                            {isMine && activePeer && !isSelfSelected && (
-                              <span
-                                title={msg.readAt ? 'Lu' : 'Envoyé'}
-                                className="inline-flex items-center"
-                              >
-                                {msg.readAt ? (
-                                  <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
-                                ) : (
-                                  <Check className="h-3.5 w-3.5 text-zinc-400" />
-                                )}
-                              </span>
-                            )}
-
-                            {!msg.decryptionError && msg.text.trim().length > 0 && (
+                            {msg.replyTo && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  navigator.clipboard?.writeText(msg.text).then(() => {
-                                    setCopiedMsgId(msg.id);
-                                    window.setTimeout(() => {
-                                      setCopiedMsgId((curr) =>
-                                        curr === msg.id ? null : curr
-                                      );
-                                    }, 1600);
-                                  }).catch(() => {});
-                                }}
-                                title="Copier le message"
-                                aria-label="Copier le message"
-                                className={`ml-0.5 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
-                                  copiedMsgId === msg.id
-                                    ? 'opacity-100 text-emerald-400'
-                                    : 'opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
-                                }`}
+                                onClick={() => scrollToMessage(msg.replyTo!.id)}
+                                className="mb-2 block w-full text-left rounded-xl bg-black/30 border border-white/[0.08] px-3 py-1.5 hover:bg-black/45 transition-colors cursor-pointer"
                               >
-                                {copiedMsgId === msg.id ? (
-                                  <Check className="h-3 w-3" />
-                                ) : (
-                                  <Copy className="h-3 w-3" />
-                                )}
+                                <span className="block text-[11px] font-semibold text-emerald-300 truncate">
+                                  {msg.replyTo.senderName}
+                                </span>
+                                <span className="block text-xs text-zinc-300 truncate">
+                                  {msg.replyTo.excerpt}
+                                </span>
                               </button>
                             )}
 
-                            {tts.supported && !msg.decryptionError && msg.text.trim().length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const speakerPrefix = isMine
-                                    ? undefined
-                                    : msg.groupId
-                                      ? msg.sender?.displayName
-                                      : activePeer?.displayName;
-                                  tts.speakMessage(msg.id, msg.text, speakerPrefix);
-                                }}
-                                title={
-                                  tts.speakingMessageId === msg.id
-                                    ? 'Arrêter la lecture'
-                                    : 'Écouter ce message (synthèse vocale locale)'
-                                }
-                                aria-label={
-                                  tts.speakingMessageId === msg.id
-                                    ? 'Arrêter la lecture du message'
-                                    : 'Écouter ce message'
-                                }
-                                className={`ml-0.5 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
-                                  tts.speakingMessageId === msg.id
-                                    ? 'opacity-100 text-emerald-400'
-                                    : 'opacity-70 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
-                                }`}
-                              >
-                                {tts.speakingMessageId === msg.id ? (
-                                  <Square className="h-3 w-3 fill-current" />
-                                ) : (
-                                  <Volume2 className="h-3.5 w-3.5" />
-                                )}
-                              </button>
+                            <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words">
+                              {msg.text}
+                            </p>
+
+                            {inspectorMode && (
+                              <div className="mt-2.5 pt-2 border-t border-white/[0.1] font-mono text-[10px] text-zinc-400 space-y-1 break-all">
+                                <div>
+                                  <span className="text-zinc-500">AES-256-GCM: </span>
+                                  <span>{msg.rawCiphertext}</span>
+                                </div>
+                                <div>
+                                  <span className="text-zinc-500">IV: </span>
+                                  <span>{msg.rawIv}</span>
+                                </div>
+                              </div>
                             )}
 
-                            {(isMine ||
-                              isSelfSelected ||
-                              activeGroup?.creatorId === session.user.id) && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteMessage(msg)}
-                                title="Supprimer pour tous"
-                                aria-label="Supprimer le message"
-                                className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 ml-0.5 text-zinc-400 hover:text-red-400 transition-opacity cursor-pointer"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            )}
+                            <div
+                              className={`mt-1.5 flex items-center gap-2 text-[11px] ${
+                                isMine ? 'text-zinc-300/80 justify-end' : 'text-zinc-500'
+                              }`}
+                            >
+                              <span className="font-mono tabular-nums">
+                                {formatTime(msg.timestamp)}
+                              </span>
+
+                              {msg.verified && (
+                                <span
+                                  title="Signature ECDSA vérifiée"
+                                  className="inline-flex items-center gap-0.5 text-emerald-400/90"
+                                >
+                                  <UserCheck className="h-3 w-3" />
+                                </span>
+                              )}
+
+                              {msg.expiresAt !== null && (
+                                <span className="inline-flex items-center gap-1 font-mono text-amber-300/90 tabular-nums">
+                                  <Clock className="h-3 w-3" />
+                                  {formatRemaining(msg.expiresAt, nowTick)}
+                                </span>
+                              )}
+
+                              {isMine && activePeer && !isSelfSelected && (
+                                <span
+                                  title={msg.readAt ? 'Lu' : 'Envoyé'}
+                                  className="inline-flex items-center"
+                                >
+                                  {msg.readAt ? (
+                                    <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
+                                  ) : (
+                                    <Check className="h-3.5 w-3.5 text-zinc-400" />
+                                  )}
+                                </span>
+                              )}
+
+                              {!msg.decryptionError && msg.text.trim().length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReplyingTo(msg);
+                                    composerRef.current?.focus();
+                                  }}
+                                  title="Répondre à ce message"
+                                  aria-label="Répondre à ce message"
+                                  className="ml-0.5 inline-flex items-center justify-center rounded opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white transition-opacity cursor-pointer"
+                                >
+                                  <Reply className="h-3 w-3" />
+                                </button>
+                              )}
+
+                              {!msg.decryptionError && msg.text.trim().length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(msg.text).then(() => {
+                                      setCopiedMsgId(msg.id);
+                                      window.setTimeout(() => {
+                                        setCopiedMsgId((curr) =>
+                                          curr === msg.id ? null : curr
+                                        );
+                                      }, 1600);
+                                    }).catch(() => {});
+                                  }}
+                                  title="Copier le message"
+                                  aria-label="Copier le message"
+                                  className={`ml-0.5 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
+                                    copiedMsgId === msg.id
+                                      ? 'opacity-100 text-emerald-400'
+                                      : 'opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
+                                  }`}
+                                >
+                                  {copiedMsgId === msg.id ? (
+                                    <Check className="h-3 w-3" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </button>
+                              )}
+
+                              {tts.supported && !msg.decryptionError && msg.text.trim().length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const speakerPrefix = isMine
+                                      ? undefined
+                                      : msg.groupId
+                                        ? msg.sender
+                                          ? getContactDisplayName(msg.sender, friendAliases)
+                                          : undefined
+                                        : activePeer
+                                          ? getContactDisplayName(activePeer, friendAliases)
+                                          : undefined;
+                                    tts.speakMessage(msg.id, msg.text, speakerPrefix);
+                                  }}
+                                  title={
+                                    tts.speakingMessageId === msg.id
+                                      ? 'Arrêter la lecture'
+                                      : 'Écouter ce message (synthèse vocale locale)'
+                                  }
+                                  aria-label={
+                                    tts.speakingMessageId === msg.id
+                                      ? 'Arrêter la lecture du message'
+                                      : 'Écouter ce message'
+                                  }
+                                  className={`ml-0.5 inline-flex items-center justify-center rounded transition-opacity cursor-pointer ${
+                                    tts.speakingMessageId === msg.id
+                                      ? 'opacity-100 text-emerald-400'
+                                      : 'opacity-70 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-zinc-400 hover:text-white'
+                                  }`}
+                                >
+                                  {tts.speakingMessageId === msg.id ? (
+                                    <Square className="h-3 w-3 fill-current" />
+                                  ) : (
+                                    <Volume2 className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              )}
+
+                              {(isMine ||
+                                isSelfSelected ||
+                                activeGroup?.creatorId === session.user.id) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMessage(msg)}
+                                  title="Supprimer pour tous"
+                                  aria-label="Supprimer le message"
+                                  className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 ml-0.5 text-zinc-400 hover:text-red-400 transition-opacity cursor-pointer"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </React.Fragment>
-                  );
-                })
-              )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
 
-              {(isPeerTyping || activeGroupTypingUser) && (
-                <div className="flex items-start">
-                  <div className="inline-flex items-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-2.5 text-xs text-zinc-400">
-                    <span>
-                      {activePeer
-                        ? `${activePeer.displayName} écrit`
-                        : `${activeGroupTypingUser} écrit`}
-                    </span>
-                    <span className="inline-flex items-center gap-1" aria-hidden="true">
-                      <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-1" />
-                      <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-2" />
-                      <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-3" />
-                    </span>
+                {(isPeerTyping || activeGroupTypingUser) && (
+                  <div className="mt-3 flex items-start">
+                    <div className="inline-flex items-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-2.5 text-xs text-zinc-400">
+                      <span>
+                        {activePeer
+                          ? `${getContactDisplayName(activePeer, friendAliases)} écrit`
+                          : `${activeGroupTypingUser} écrit`}
+                      </span>
+                      <span className="inline-flex items-center gap-1" aria-hidden="true">
+                        <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-1" />
+                        <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-2" />
+                        <span className="h-1 w-1 rounded-full bg-zinc-400 typing-dot-3" />
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div ref={messagesEndRef} />
+                <div ref={messagesEndRef} />
+              </div>
+
+              {showScrollToBottom && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    isNearBottomRef.current = true;
+                    setUnreadBelowCount(0);
+                    setShowScrollToBottom(false);
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  aria-label="Descendre aux derniers messages"
+                  className="absolute bottom-4 right-4 sm:right-6 z-20 glass-elevated flex items-center gap-1.5 rounded-full border border-white/[0.14] px-3 py-2 text-xs font-medium text-white shadow-xl hover:bg-white/[0.12] transition-colors cursor-pointer"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                  {unreadBelowCount > 0 && (
+                    <span className="font-mono text-[11px] font-semibold text-emerald-300 tabular-nums">
+                      {unreadBelowCount}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
 
             {/* Composer */}
             <footer
-              className={`border-t border-white/[0.08] ${glassSurfaceClass} px-3 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]`}
+              className={`border-t border-white/[0.06] ${glassSurfaceClass} px-3 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]`}
             >
               {activePeer &&
               !isSelfSelected &&
@@ -2169,6 +2577,34 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </div>
               ) : (
                 <>
+                  {replyingTo && (
+                    <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3.5 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-emerald-300 truncate">
+                          Réponse à{' '}
+                          {replyingTo.fromId === session.user.id
+                            ? 'vous-même'
+                            : replyingTo.sender
+                              ? getContactDisplayName(replyingTo.sender, friendAliases)
+                              : activePeer
+                                ? getContactDisplayName(activePeer, friendAliases)
+                                : 'Contact'}
+                        </p>
+                        <p className="text-zinc-400 truncate">
+                          {replyingTo.text}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setReplyingTo(null)}
+                        aria-label="Annuler la réponse"
+                        className="p-1 text-zinc-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {sendError && (
                     <p className="mb-2 text-xs text-red-400">{sendError}</p>
                   )}
@@ -2282,6 +2718,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         onClose={() => setIsContactModalOpen(false)}
         token={session.token}
         currentUser={session.user}
+        friendAliases={friendAliases}
         onSelectPeer={handleSelectPeer}
         onViewProfile={(u) => setViewedProfileUser(u)}
       />
@@ -2292,6 +2729,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         token={session.token}
         currentUser={session.user}
         snapshot={friendsSnapshot}
+        friendAliases={friendAliases}
+        onSaveFriendAlias={handleSaveFriendAlias}
         getRelationship={getRelationship}
         onViewProfile={(u) => setViewedProfileUser(u)}
         onStartChat={handleSelectPeer}
@@ -2308,6 +2747,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         onClose={() => setIsCreateGroupOpen(false)}
         session={session}
         friends={friendsSnapshot.friends}
+        friendAliases={friendAliases}
         onGroupCreated={(group) => handleSelectGroup(group)}
       />
 
@@ -2316,6 +2756,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         onClose={() => setIsGroupInfoOpen(false)}
         group={activeGroup}
         session={session}
+        friendAliases={friendAliases}
         onViewProfile={(u) => setViewedProfileUser(u)}
         onGroupUpdated={(updated) => {
           setGroups((prev) =>
@@ -2390,6 +2831,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         relationship={
           viewedProfileUser ? getRelationship(viewedProfileUser.id) : 'none'
         }
+        friendAlias={
+          viewedProfileUser ? friendAliases[viewedProfileUser.id] : undefined
+        }
+        onSaveFriendAlias={handleSaveFriendAlias}
         onOpenSecurity={
           activePeer && viewedProfileUser?.id === activePeer.id
             ? () => setIsSecurityModalOpen(true)
@@ -2431,24 +2876,63 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       <CallOverlay
         phase={call.phase}
         callType={call.callType}
-        peer={call.peer}
+        currentUserFingerprint={session.user.fingerprint}
+        peer={
+          call.peer
+            ? {
+                ...call.peer,
+                displayName: getContactDisplayName(call.peer, friendAliases),
+              }
+            : null
+        }
         localStream={call.localStream}
         remoteStream={call.remoteStream}
         audioMuted={call.audioMuted}
         videoEnabled={call.videoEnabled}
+        screenSharing={call.screenSharing}
+        facingMode={call.facingMode}
+        hasMultipleCameras={call.hasMultipleCameras}
+        audioInputs={call.audioInputs}
+        audioOutputs={call.audioOutputs}
+        selectedAudioInputId={call.selectedAudioInputId}
+        selectedAudioOutputId={call.selectedAudioOutputId}
         peerAudioMuted={call.peerAudioMuted}
         peerVideoEnabled={call.peerVideoEnabled}
         peerRinging={call.peerRinging}
+        peerQueued={call.peerQueued}
+        peerPushSent={call.peerPushSent}
         isMinimized={call.isMinimized}
         durationSec={call.durationSec}
         notice={call.notice}
+        endedPrompt={
+          call.endedPrompt
+            ? {
+                ...call.endedPrompt,
+                peer: {
+                  ...call.endedPrompt.peer,
+                  displayName: getContactDisplayName(
+                    call.endedPrompt.peer,
+                    friendAliases
+                  ),
+                },
+              }
+            : null
+        }
+        localAudioLevel={call.localAudioLevel}
+        remoteAudioLevel={call.remoteAudioLevel}
+        stats={call.stats}
         onDismissNotice={call.dismissNotice}
+        onRedial={(targetPeer, targetType) => void call.startCall(targetPeer, targetType)}
         onToggleMinimize={() => call.setIsMinimized((v) => !v)}
         onAccept={(withVideo) => void call.acceptIncomingCall(withVideo)}
         onDecline={call.declineIncomingCall}
         onHangup={call.hangupCall}
         onToggleMute={call.toggleMute}
         onToggleVideo={() => void call.toggleVideo()}
+        onToggleScreenShare={() => void call.toggleScreenShare()}
+        onSwitchCamera={() => void call.switchCamera()}
+        onSelectAudioInput={(id) => void call.selectAudioInput(id)}
+        onSelectAudioOutput={call.selectAudioOutput}
       />
     </div>
   );

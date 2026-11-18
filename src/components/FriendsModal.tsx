@@ -5,6 +5,7 @@ import {
   Clock,
   Eye,
   MessageSquare,
+  Pencil,
   Search,
   ShieldOff,
   UserCheck,
@@ -26,6 +27,8 @@ interface FriendsModalProps {
   token: string;
   currentUser: PublicUser;
   snapshot: FriendsSnapshot;
+  friendAliases?: Record<string, string>;
+  onSaveFriendAlias?: (userId: string, nickname: string) => Promise<void>;
   getRelationship: (userId: string) => RelationshipState;
   onViewProfile: (user: PublicUser) => void;
   onStartChat: (peer: PublicUser) => void;
@@ -45,6 +48,8 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   token,
   currentUser,
   snapshot,
+  friendAliases = {},
+  onSaveFriendAlias,
   getRelationship,
   onViewProfile,
   onStartChat,
@@ -61,12 +66,16 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   const [searching, setSearching] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingAliasId, setEditingAliasId] = useState<string | null>(null);
+  const [aliasDraft, setAliasDraft] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
       setQuery('');
       setSearchResults([]);
       setError(null);
+      setEditingAliasId(null);
+      setAliasDraft('');
       return;
     }
     if (snapshot.incoming.length > 0) {
@@ -201,79 +210,146 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                   </button>
                 </div>
               ) : (
-                snapshot.friends.map((friend) => (
-                  <div
-                    key={friend.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onViewProfile(friend)}
-                      className="flex items-center gap-3 min-w-0 text-left hover:opacity-90 transition-opacity cursor-pointer"
+                snapshot.friends.map((friend) => {
+                  const alias = friendAliases[friend.id]?.trim();
+                  const isEditingThis = editingAliasId === friend.id;
+                  return (
+                    <div
+                      key={friend.id}
+                      className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-3 space-y-2.5"
                     >
-                      <UserAvatar user={friend} size="sm" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-white truncate">
-                          {friend.displayName}
-                        </p>
-                        <p className="font-mono text-xs text-zinc-400 truncate">
-                          {friend.handle}
-                        </p>
-                        {(friend.bio || friend.biography) && (
-                          <p className="mt-0.5 text-xs text-zinc-400 truncate">
-                            {friend.bio || friend.biography}
-                          </p>
-                        )}
-                      </div>
-                    </button>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => onViewProfile(friend)}
+                          className="flex items-center gap-3 min-w-0 text-left hover:opacity-90 transition-opacity cursor-pointer"
+                        >
+                          <UserAvatar user={friend} size="sm" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-white truncate">
+                              {alias || friend.displayName}
+                            </p>
+                            <p className="font-mono text-xs text-zinc-400 truncate">
+                              {alias
+                                ? `${friend.handle} · ${friend.displayName}`
+                                : friend.handle}
+                            </p>
+                            {(friend.bio || friend.biography) && (
+                              <p className="mt-0.5 text-xs text-zinc-400 truncate">
+                                {friend.bio || friend.biography}
+                              </p>
+                            )}
+                          </div>
+                        </button>
 
-                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
-                      <button
-                        type="button"
-                        onClick={() => onViewProfile(friend)}
-                        title="Voir le profil"
-                        className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        <span>Profil</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onStartChat(friend);
-                          onClose();
-                        }}
-                        title="Envoyer un message"
-                        className="min-h-[36px] flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
-                      >
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        <span>Message</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === friend.id}
-                        onClick={() =>
-                          exec(friend.id, () => onRemoveFriend(friend.id))
-                        }
-                        title="Retirer des amis"
-                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
-                      >
-                        <UserMinus className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === friend.id}
-                        onClick={() =>
-                          exec(friend.id, () => onBlockUser(friend.id))
-                        }
-                        title="Bloquer cet utilisateur"
-                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
-                      >
-                        <Ban className="h-3.5 w-3.5" />
-                      </button>
+                        <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                          {onSaveFriendAlias && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isEditingThis) {
+                                  setEditingAliasId(null);
+                                } else {
+                                  setEditingAliasId(friend.id);
+                                  setAliasDraft(alias ?? '');
+                                }
+                              }}
+                              title="Ajouter ou modifier un nom d'ami"
+                              className={`min-h-[36px] flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
+                                isEditingThis
+                                  ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+                                  : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09]'
+                              }`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              <span>Nom</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onViewProfile(friend)}
+                            title="Voir le profil"
+                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Profil</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onStartChat(friend);
+                              onClose();
+                            }}
+                            title="Envoyer un message"
+                            className="min-h-[36px] flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span>Message</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === friend.id}
+                            onClick={() =>
+                              exec(friend.id, () => onRemoveFriend(friend.id))
+                            }
+                            title="Retirer des amis"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+                          >
+                            <UserMinus className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === friend.id}
+                            onClick={() =>
+                              exec(friend.id, () => onBlockUser(friend.id))
+                            }
+                            title="Bloquer cet utilisateur"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditingThis && onSaveFriendAlias && (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void exec(friend.id, async () => {
+                              await onSaveFriendAlias(friend.id, aliasDraft.trim());
+                              setEditingAliasId(null);
+                            });
+                          }}
+                          className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/[0.06]"
+                        >
+                          <input
+                            type="text"
+                            autoFocus
+                            maxLength={32}
+                            value={aliasDraft}
+                            onChange={(e) => setAliasDraft(e.target.value)}
+                            placeholder={`Nom d’ami pour ${friend.displayName} (vide pour retirer)...`}
+                            className="flex-1 min-w-[160px] glass-input rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+                          />
+                          <button
+                            type="submit"
+                            disabled={busyId === friend.id}
+                            className="min-h-[32px] rounded-lg bg-white px-3 py-1 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                          >
+                            Enregistrer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingAliasId(null)}
+                            className="min-h-[32px] rounded-lg border border-white/[0.1] px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.06] cursor-pointer"
+                          >
+                            Annuler
+                          </button>
+                        </form>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </>
           )}
@@ -472,10 +548,12 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                         <UserAvatar user={user} size="sm" />
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-white truncate">
-                            {user.displayName}
+                            {friendAliases[user.id]?.trim() || user.displayName}
                           </p>
                           <p className="font-mono text-xs text-zinc-400 truncate">
-                            {user.handle}
+                            {friendAliases[user.id]?.trim()
+                              ? `${user.handle} · ${user.displayName}`
+                              : user.handle}
                           </p>
                         </div>
                       </button>

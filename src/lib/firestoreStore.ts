@@ -90,6 +90,82 @@ function sanitizeHandlePrefix(displayName: string): string {
   return cleaned || 'ombre';
 }
 
+export class PseudonymError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PseudonymError';
+  }
+}
+
+export function getContactDisplayName(
+  user: { id: string; displayName: string },
+  friendAliases?: Record<string, string>
+): string {
+  const custom = friendAliases?.[user.id]?.trim();
+  return custom || user.displayName;
+}
+
+export function normalizePseudoKey(displayName: string): string {
+  return displayName
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 32);
+}
+
+export async function isPseudonymAvailable(
+  displayName: string,
+  excludeUid?: string
+): Promise<{ available: boolean; pseudoKey: string; reason?: string }> {
+  const cleanName = displayName.trim();
+  if (cleanName.length < 2) {
+    return {
+      available: false,
+      pseudoKey: '',
+      reason: 'Le pseudonyme doit contenir au moins 2 caractères.',
+    };
+  }
+  if (cleanName.length > 32) {
+    return {
+      available: false,
+      pseudoKey: '',
+      reason: 'Le pseudonyme ne doit pas dépasser 32 caractères.',
+    };
+  }
+  const pseudoKey = normalizePseudoKey(cleanName);
+  if (pseudoKey.length < 2 || !/^[a-z0-9_]{2,32}$/.test(pseudoKey)) {
+    return {
+      available: false,
+      pseudoKey,
+      reason: 'Utilisez au moins 2 lettres ou chiffres.',
+    };
+  }
+
+  try {
+    const snap = await getDoc(doc(db, 'pseudonyms', pseudoKey));
+    if (!snap.exists()) {
+      return { available: true, pseudoKey };
+    }
+    if (excludeUid && snap.data().userId === excludeUid) {
+      return { available: true, pseudoKey };
+    }
+    return {
+      available: false,
+      pseudoKey,
+      reason: 'Ce pseudonyme est déjà utilisé par une autre personne.',
+    };
+  } catch {
+    return {
+      available: true,
+      pseudoKey,
+    };
+  }
+}
+
 export function normalizeHandleKey(handle: string): string {
   return handle
     .trim()
@@ -274,7 +350,26 @@ export async function createDiscretAccountInFirestore(params: {
   displayName: string;
   identity: GeneratedIdentityPayload;
 }): Promise<PublicUser> {
-  const cleanName = params.displayName.trim().slice(0, 32) || 'Anonyme';
+  const cleanName = params.displayName.trim().slice(0, 32);
+  const pseudoKey = normalizePseudoKey(cleanName);
+  if (cleanName.length < 2 || pseudoKey.length < 2 || !/^[a-z0-9_]{2,32}$/.test(pseudoKey)) {
+    throw new PseudonymError(
+      'Veuillez choisir un pseudonyme unique d’au moins 2 lettres ou chiffres.'
+    );
+  }
+
+  const pseudoRef = doc(db, 'pseudonyms', pseudoKey);
+  try {
+    const existingPseudo = await getDoc(pseudoRef);
+    if (existingPseudo.exists() && existingPseudo.data().userId !== params.uid) {
+      throw new PseudonymError(
+        'Ce pseudonyme est déjà utilisé par une autre personne. Choisissez-en un autre.'
+      );
+    }
+  } catch (err) {
+    if (err instanceof PseudonymError) throw err;
+  }
+
   const handle = await generateUniqueHandle(cleanName);
   const handleKey = normalizeHandleKey(handle);
   const nowMs = Date.now();
@@ -328,6 +423,14 @@ export async function createDiscretAccountInFirestore(params: {
       createdAt: serverTimestamp(),
     });
 
+    batch.set(pseudoRef, {
+      userId: params.uid,
+      displayName: cleanName,
+      pseudoKey,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
     batch.set(doc(db, 'conversations', convId), {
       id: convId,
       userA: params.uid,
@@ -348,6 +451,17 @@ export async function createDiscretAccountInFirestore(params: {
 
     await batch.commit();
   } catch (err) {
+    if (err instanceof PseudonymError) throw err;
+    try {
+      const check = await getDoc(pseudoRef);
+      if (check.exists() && check.data().userId !== params.uid) {
+        throw new PseudonymError(
+          'Ce pseudonyme est déjà utilisé par une autre personne. Choisissez-en un autre.'
+        );
+      }
+    } catch (inner) {
+      if (inner instanceof PseudonymError) throw inner;
+    }
     handleFirestoreError(err, OperationType.WRITE, `users/${params.uid}`);
   }
 
@@ -399,6 +513,27 @@ export async function updateMyProfileInFirestore(
       typeof updates.displayName === 'string' && updates.displayName.trim().length > 0
         ? updates.displayName.trim().slice(0, 32)
         : existing.displayName;
+    const oldPseudoKey = normalizePseudoKey(existing.displayName);
+    const nextPseudoKey = normalizePseudoKey(nextDisplayName);
+
+    if (
+      nextDisplayName.length < 2 ||
+      nextPseudoKey.length < 2 ||
+      !/^[a-z0-9_]{2,32}$/.test(nextPseudoKey)
+    ) {
+      throw new PseudonymError(
+        'Le pseudonyme doit contenir au moins 2 lettres ou chiffres.'
+      );
+    }
+
+    const nextPseudoRef = doc(db, 'pseudonyms', nextPseudoKey);
+    const nextPseudoSnap = await getDoc(nextPseudoRef);
+    if (nextPseudoSnap.exists() && nextPseudoSnap.data().userId !== uid) {
+      throw new PseudonymError(
+        'Ce pseudonyme est déjà utilisé par une autre personne.'
+      );
+    }
+
     const nextBio =
       typeof updates.bio === 'string' ? updates.bio.trim().slice(0, 80) : existing.bio || '';
     const nextBiography =
@@ -451,6 +586,30 @@ export async function updateMyProfileInFirestore(
       lastSeen: Date.now(),
       updatedAt: serverTimestamp(),
     });
+
+    if (oldPseudoKey && oldPseudoKey !== nextPseudoKey && /^[a-z0-9_]{2,32}$/.test(oldPseudoKey)) {
+      const oldPseudoRef = doc(db, 'pseudonyms', oldPseudoKey);
+      const oldPseudoSnap = await getDoc(oldPseudoRef);
+      if (oldPseudoSnap.exists() && oldPseudoSnap.data().userId === uid) {
+        batch.delete(oldPseudoRef);
+      }
+    }
+
+    if (!nextPseudoSnap.exists()) {
+      batch.set(nextPseudoRef, {
+        userId: uid,
+        displayName: nextDisplayName,
+        pseudoKey: nextPseudoKey,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else if (nextPseudoSnap.data().displayName !== nextDisplayName) {
+      batch.update(nextPseudoRef, {
+        displayName: nextDisplayName,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
     await batch.commit();
 
     void syncUserSearchBuckets(uid, nextDisplayName, existing.handle);
@@ -469,6 +628,7 @@ export async function updateMyProfileInFirestore(
     profileCache.set(uid, updated);
     return updated;
   } catch (err) {
+    if (err instanceof PseudonymError) throw err;
     handleFirestoreError(err, OperationType.UPDATE, pubPath);
   }
 }
@@ -1638,6 +1798,82 @@ export async function unblockUserInFirestore(
     await deleteDoc(doc(db, 'blocks', blockId));
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `blocks/${blockId}`);
+  }
+}
+
+// ============================================================================
+// Private Friend Aliases (Custom Friend Nicknames)
+// ============================================================================
+
+export function subscribeFriendAliases(
+  myUid: string,
+  onChange: (aliases: Record<string, string>) => void
+): Unsubscribe {
+  const path = `users/${myUid}/friendAliases`;
+  return onSnapshot(
+    collection(db, 'users', myUid, 'friendAliases'),
+    (snap) => {
+      const next: Record<string, string> = {};
+      for (const d of snap.docs) {
+        const data = d.data() as Record<string, unknown>;
+        const targetId = String(data.targetUserId || d.id);
+        const nickname = typeof data.nickname === 'string' ? data.nickname.trim() : '';
+        if (targetId && nickname) {
+          next[targetId] = nickname;
+        }
+      }
+      onChange(next);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  );
+}
+
+export async function setFriendAliasInFirestore(
+  myUid: string,
+  targetUserId: string,
+  nickname: string
+): Promise<void> {
+  if (!targetUserId || targetUserId === myUid) return;
+  const clean = nickname.trim().slice(0, 32);
+  const ref = doc(db, 'users', myUid, 'friendAliases', targetUserId);
+  const path = `users/${myUid}/friendAliases/${targetUserId}`;
+
+  try {
+    if (!clean) {
+      await deleteDoc(ref);
+      return;
+    }
+    const existing = await getDoc(ref);
+    if (existing.exists()) {
+      await updateDoc(ref, {
+        nickname: clean,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, {
+        targetUserId,
+        nickname: clean,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function removeFriendAliasInFirestore(
+  myUid: string,
+  targetUserId: string
+): Promise<void> {
+  if (!targetUserId || targetUserId === myUid) return;
+  const path = `users/${myUid}/friendAliases/${targetUserId}`;
+  try {
+    await deleteDoc(doc(db, 'users', myUid, 'friendAliases', targetUserId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
   }
 }
 

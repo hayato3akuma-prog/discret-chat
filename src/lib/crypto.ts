@@ -1,7 +1,22 @@
 // Web Crypto API End-to-End Encryption & Zero-Knowledge Key Derivation Engine
+import type { ReplyReference } from '../types';
 
 const KEY_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const PBKDF2_ITERATIONS = 250_000;
+
+function sanitizeReplyReference(raw: unknown): ReplyReference | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== 'string' || !r.id) return undefined;
+  return {
+    id: r.id.slice(0, 128),
+    senderName:
+      typeof r.senderName === 'string' && r.senderName.trim()
+        ? r.senderName.trim().slice(0, 48)
+        : 'Contact',
+    excerpt: typeof r.excerpt === 'string' ? r.excerpt.slice(0, 180) : '',
+  };
+}
 
 function toBase64(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -385,6 +400,7 @@ export async function encryptAndSignMessage(params: {
   fromId: string;
   toId: string;
   plaintext: string;
+  replyTo?: ReplyReference;
   timestamp: number;
   myEcdhPrivateKey: CryptoKey;
   myEcdsaPrivateKey: CryptoKey;
@@ -401,9 +417,11 @@ export async function encryptAndSignMessage(params: {
   const iv = new Uint8Array(ivBuf);
   window.crypto.getRandomValues(iv);
 
+  const replyTo = sanitizeReplyReference(params.replyTo);
   const payload = JSON.stringify({
     text: params.plaintext,
-    v: 1,
+    ...(replyTo ? { replyTo } : {}),
+    v: replyTo ? 2 : 1,
     ts: params.timestamp,
   });
 
@@ -443,7 +461,12 @@ export async function decryptAndVerifyMessage(params: {
   myEcdhPrivateKey: CryptoKey;
   peerEcdhPublicJwk: JsonWebKey;
   senderEcdsaPublicJwk: JsonWebKey;
-}): Promise<{ text: string; verified: boolean; error?: boolean }> {
+}): Promise<{
+  text: string;
+  replyTo?: ReplyReference;
+  verified: boolean;
+  error?: boolean;
+}> {
   try {
     const aesKey = await deriveConversationAesKey(
       params.myEcdhPrivateKey,
@@ -457,7 +480,10 @@ export async function decryptAndVerifyMessage(params: {
       fromBase64(params.ciphertext)
     );
 
-    const parsed = JSON.parse(utf8Decode(plainBuf)) as { text: string };
+    const parsed = JSON.parse(utf8Decode(plainBuf)) as {
+      text: string;
+      replyTo?: unknown;
+    };
 
     let verified = false;
     try {
@@ -479,7 +505,11 @@ export async function decryptAndVerifyMessage(params: {
       verified = false;
     }
 
-    return { text: parsed.text, verified };
+    return {
+      text: parsed.text,
+      replyTo: sanitizeReplyReference(parsed.replyTo),
+      verified,
+    };
   } catch {
     return {
       text: 'Message illisible (clé ou intégrité invalide)',
@@ -580,6 +610,7 @@ export async function encryptAndSignGroupMessage(params: {
   groupId: string;
   fromId: string;
   plaintext: string;
+  replyTo?: ReplyReference;
   timestamp: number;
   groupAesKey: CryptoKey;
   myEcdsaPrivateKey: CryptoKey;
@@ -588,9 +619,11 @@ export async function encryptAndSignGroupMessage(params: {
   const iv = new Uint8Array(ivBuf);
   window.crypto.getRandomValues(iv);
 
+  const replyTo = sanitizeReplyReference(params.replyTo);
   const payload = JSON.stringify({
     text: params.plaintext,
-    v: 1,
+    ...(replyTo ? { replyTo } : {}),
+    v: replyTo ? 2 : 1,
     ts: params.timestamp,
   });
 
@@ -627,7 +660,12 @@ export async function decryptAndVerifyGroupMessage(params: {
   timestamp: number;
   groupAesKey: CryptoKey;
   senderEcdsaPublicJwk?: JsonWebKey;
-}): Promise<{ text: string; verified: boolean; error?: boolean }> {
+}): Promise<{
+  text: string;
+  replyTo?: ReplyReference;
+  verified: boolean;
+  error?: boolean;
+}> {
   try {
     const plainBuf = await window.crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: fromBase64(params.iv) },
@@ -635,7 +673,10 @@ export async function decryptAndVerifyGroupMessage(params: {
       fromBase64(params.ciphertext)
     );
 
-    const parsed = JSON.parse(utf8Decode(plainBuf)) as { text: string };
+    const parsed = JSON.parse(utf8Decode(plainBuf)) as {
+      text: string;
+      replyTo?: unknown;
+    };
 
     let verified = false;
     if (params.senderEcdsaPublicJwk) {
@@ -659,7 +700,11 @@ export async function decryptAndVerifyGroupMessage(params: {
       }
     }
 
-    return { text: parsed.text, verified };
+    return {
+      text: parsed.text,
+      replyTo: sanitizeReplyReference(parsed.replyTo),
+      verified,
+    };
   } catch {
     return {
       text: 'Message de groupe illisible',

@@ -141,6 +141,26 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidPseudonymClaim(data) {
+      return data.keys().hasAll(['userId', 'displayName', 'pseudoKey', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'displayName', 'pseudoKey', 'createdAt', 'updatedAt'])
+        && isValidShortId(data.userId)
+        && data.userId == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 32
+        && data.pseudoKey is string && data.pseudoKey.size() >= 2 && data.pseudoKey.size() <= 32 && data.pseudoKey.matches('^[a-z0-9_]+$')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFriendAlias(data) {
+      return data.keys().hasAll(['targetUserId', 'nickname', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['targetUserId', 'nickname', 'createdAt', 'updatedAt'])
+        && isValidShortId(data.targetUserId)
+        && data.nickname is string && data.nickname.size() >= 1 && data.nickname.size() <= 32
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     function isValidSearchBucket(data) {
       return data.keys().hasAll(['prefix', 'userIds', 'updatedAt'])
         && data.keys().hasOnly(['prefix', 'userIds', 'updatedAt'])
@@ -344,6 +364,39 @@ service cloud.firestore {
           'lastSeen', 'updatedAt'
         ]);
       allow delete: if false;
+
+      match /friendAliases/{targetUserId} {
+        allow get: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidShortId(targetUserId)
+          && isOwner(userId);
+        allow list: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isOwner(userId);
+        allow create: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidShortId(targetUserId)
+          && isOwner(userId)
+          && targetUserId != userId
+          && isValidFriendAlias(incoming())
+          && incoming().targetUserId == targetUserId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidShortId(targetUserId)
+          && isOwner(userId)
+          && targetUserId != userId
+          && isValidFriendAlias(incoming())
+          && incoming().targetUserId == existing().targetUserId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'updatedAt']);
+        allow delete: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidShortId(targetUserId)
+          && isOwner(userId);
+      }
     }
 
     // =========================================================================
@@ -394,6 +447,29 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly(['handle']);
       allow delete: if isVerifiedUser()
         && isValidShortId(handleKey)
+        && existing().userId == request.auth.uid;
+    }
+
+    match /pseudonyms/{pseudoKey} {
+      allow get: if isVerifiedUser() && isValidShortId(pseudoKey);
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidShortId(pseudoKey)
+        && isValidPseudonymClaim(incoming())
+        && incoming().pseudoKey == pseudoKey
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidShortId(pseudoKey)
+        && existing().userId == request.auth.uid
+        && isValidPseudonymClaim(incoming())
+        && incoming().pseudoKey == existing().pseudoKey
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']);
+      allow delete: if isVerifiedUser()
+        && isValidShortId(pseudoKey)
         && existing().userId == request.auth.uid;
     }
 

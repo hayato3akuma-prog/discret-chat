@@ -202,6 +202,66 @@
       },
       "required": ["userId", "handle", "createdAt"]
     },
+    "PseudonymClaim": {
+      "title": "PseudonymClaim",
+      "description": "Global uniqueness reservation lock mapping normalized pseudonym keys to their owning userId.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 32
+        },
+        "pseudoKey": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 32,
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "displayName", "pseudoKey", "createdAt", "updatedAt"]
+    },
+    "FriendAlias": {
+      "title": "FriendAlias",
+      "description": "Private user-scoped custom nickname assigned to a contact or friend.",
+      "type": "object",
+      "properties": {
+        "targetUserId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "nickname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["targetUserId", "nickname", "createdAt", "updatedAt"]
+    },
     "SearchBucket": {
       "title": "SearchBucket",
       "description": "Bounded prefix bucket (up to 12 userIds) enabling handle/pseudonym lookup without blanket collection list queries.",
@@ -701,6 +761,10 @@
       "schema": { "$ref": "#/entities/PrivateUser" },
       "description": "Owner-only private encrypted key vault and DISCRET identity record."
     },
+    "/users/{userId}/friendAliases/{targetUserId}": {
+      "schema": { "$ref": "#/entities/FriendAlias" },
+      "description": "Owner-only private friend/contact custom nicknames."
+    },
     "/publicProfiles/{userId}": {
       "schema": { "$ref": "#/entities/PublicProfile" },
       "description": "Public E2EE profile (pseudonym, public keys, avatar, banner, bio) keyed by userId."
@@ -708,6 +772,10 @@
     "/handleIndex/{handleKey}": {
       "schema": { "$ref": "#/entities/HandleIndex" },
       "description": "Exact normalized handle lookup pointing to userId."
+    },
+    "/pseudonyms/{pseudoKey}": {
+      "schema": { "$ref": "#/entities/PseudonymClaim" },
+      "description": "Global uniqueness reservation lock enforcing one unique pseudonym per user."
     },
     "/searchBuckets/{prefix}": {
       "schema": { "$ref": "#/entities/SearchBucket" },

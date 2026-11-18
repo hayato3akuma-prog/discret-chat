@@ -230,6 +230,43 @@ function loadPushState(): PushDiskState {
 const pushState: PushDiskState = loadPushState();
 const activeSockets = new Map<string, Set<WebSocket>>();
 
+interface PendingCallInvite {
+  callId: string;
+  fromId: string;
+  toId: string;
+  caller: Record<string, unknown>;
+  callType: 'audio' | 'video';
+  sdp: unknown;
+  iceCandidates: unknown[];
+  createdAt: number;
+}
+
+const CALL_INVITE_TTL_MS = 45_000;
+const pendingCallInvites = new Map<string, PendingCallInvite[]>();
+
+function prunePendingCallsForUser(userId: string) {
+  const now = Date.now();
+  const list = pendingCallInvites.get(userId);
+  if (!list) return;
+  const valid = list.filter((c) => now - c.createdAt < CALL_INVITE_TTL_MS);
+  if (valid.length === 0) {
+    pendingCallInvites.delete(userId);
+  } else {
+    pendingCallInvites.set(userId, valid);
+  }
+}
+
+function removePendingCall(userId: string, callId: string) {
+  const list = pendingCallInvites.get(userId);
+  if (!list) return;
+  const next = list.filter((c) => c.callId !== callId);
+  if (next.length === 0) {
+    pendingCallInvites.delete(userId);
+  } else {
+    pendingCallInvites.set(userId, next);
+  }
+}
+
 let writeTimer: NodeJS.Timeout | null = null;
 function schedulePersistPushState() {
   if (writeTimer) return;
@@ -268,15 +305,27 @@ const vapidSubject =
   process.env.VAPID_SUBJECT?.trim() || 'mailto:security@discret.app';
 webpush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
 
-function sendToUser(userId: string, payload: unknown) {
+function hasOpenSocket(userId: string): boolean {
   const sockets = activeSockets.get(userId);
-  if (!sockets) return;
+  if (!sockets) return false;
+  for (const ws of sockets) {
+    if (ws.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
+}
+
+function sendToUser(userId: string, payload: unknown): number {
+  const sockets = activeSockets.get(userId);
+  if (!sockets) return 0;
   const serialized = JSON.stringify(payload);
+  let delivered = 0;
   for (const ws of sockets) {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(serialized);
+      delivered += 1;
     }
   }
+  return delivered;
 }
 
 interface PushNotificationBuildContext {
@@ -593,6 +642,28 @@ async function startServer() {
 
   // Real-time WebSocket Signaling Server (WebRTC Calls & Typing Indicators)
   const wss = new WebSocketServer({ noServer: true });
+  const wsAliveMap = new WeakMap<WebSocket, boolean>();
+
+  const wsHeartbeat = setInterval(() => {
+    for (const [, sockets] of activeSockets.entries()) {
+      for (const ws of sockets) {
+        if (wsAliveMap.get(ws) === false) {
+          ws.terminate();
+          continue;
+        }
+        wsAliveMap.set(ws, false);
+        try {
+          ws.ping();
+        } catch {
+          // Ignore ping error
+        }
+      }
+    }
+  }, 25000);
+
+  wss.on('close', () => {
+    clearInterval(wsHeartbeat);
+  });
 
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '/', `http://${request.headers.host}`);
@@ -621,6 +692,11 @@ async function startServer() {
   });
 
   wss.on('connection', (ws: WebSocket, userId: string) => {
+    wsAliveMap.set(ws, true);
+    ws.on('pong', () => {
+      wsAliveMap.set(ws, true);
+    });
+
     let userSockets = activeSockets.get(userId);
     if (!userSockets) {
       userSockets = new Set();
@@ -628,7 +704,39 @@ async function startServer() {
     }
     userSockets.add(ws);
 
+    // Replay any still-valid incoming call invites (e.g. user opened app from push notification)
+    prunePendingCallsForUser(userId);
+    const queuedCalls = pendingCallInvites.get(userId);
+    if (queuedCalls && queuedCalls.length > 0) {
+      const latestInvite = queuedCalls[queuedCalls.length - 1];
+      try {
+        ws.send(
+          JSON.stringify({
+            type: 'call:invite',
+            callId: latestInvite.callId,
+            fromId: latestInvite.fromId,
+            caller: latestInvite.caller,
+            callType: latestInvite.callType,
+            sdp: latestInvite.sdp,
+          })
+        );
+        for (const candidate of latestInvite.iceCandidates) {
+          ws.send(
+            JSON.stringify({
+              type: 'call:ice',
+              callId: latestInvite.callId,
+              fromId: latestInvite.fromId,
+              candidate,
+            })
+          );
+        }
+      } catch {
+        // Ignore replay write error
+      }
+    }
+
     ws.on('message', (raw) => {
+      wsAliveMap.set(ws, true);
       try {
         const data = JSON.parse(String(raw)) as {
           type?: string;
@@ -645,6 +753,13 @@ async function startServer() {
           audioMuted?: boolean;
           videoEnabled?: boolean;
         };
+
+        if (data.type === 'ws:ping') {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ws:pong' }));
+          }
+          return;
+        }
 
         if (data.type === 'typing:state') {
           if (typeof data.groupId === 'string' && Array.isArray(data.memberIds)) {
@@ -687,6 +802,21 @@ async function startServer() {
               ? caller.displayName
               : 'Contact DISCRET';
 
+          prunePendingCallsForUser(data.toId);
+          const pendingList = pendingCallInvites.get(data.toId) ?? [];
+          pendingList.push({
+            callId: data.callId,
+            fromId: userId,
+            toId: data.toId,
+            caller,
+            callType,
+            sdp: data.sdp,
+            iceCandidates: [],
+            createdAt: Date.now(),
+          });
+          pendingCallInvites.set(data.toId, pendingList.slice(-3));
+
+          const peerOnline = hasOpenSocket(data.toId);
           sendToUser(data.toId, {
             type: 'call:invite',
             callId: data.callId,
@@ -705,11 +835,23 @@ async function startServer() {
             discreetTitle: 'DISCRET',
             discreetBody: 'Appel chiffré entrant',
             tag: `call-${data.callId}`,
+            forceShow: true,
             data: {
-              url: `/?open=dm&peerId=${encodeURIComponent(userId)}`,
+              url: `/?open=dm&peerId=${encodeURIComponent(userId)}&callId=${encodeURIComponent(
+                data.callId
+              )}`,
               type: 'dm',
               peerId: userId,
+              callId: data.callId,
             },
+          }).then((pushSummary) => {
+            if (!peerOnline) {
+              sendToUser(userId, {
+                type: 'call:queued',
+                callId: data.callId,
+                pushSent: pushSummary.sent > 0,
+              });
+            }
           });
         } else if (
           (data.type === 'call:ringing' ||
@@ -722,6 +864,23 @@ async function startServer() {
           typeof data.toId === 'string' &&
           typeof data.callId === 'string'
         ) {
+          if (data.type === 'call:ice' && data.candidate) {
+            const list = pendingCallInvites.get(data.toId);
+            const targetInvite = list?.find((item) => item.callId === data.callId);
+            if (targetInvite && targetInvite.iceCandidates.length < 40) {
+              targetInvite.iceCandidates.push(data.candidate);
+            }
+          }
+
+          if (
+            data.type === 'call:accept' ||
+            data.type === 'call:decline' ||
+            data.type === 'call:hangup'
+          ) {
+            removePendingCall(data.toId, data.callId);
+            removePendingCall(userId, data.callId);
+          }
+
           sendToUser(data.toId, {
             type: data.type,
             callId: data.callId,

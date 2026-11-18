@@ -110,6 +110,12 @@ export interface GroupMessageEnvelope {
   expiresAt: number | null;
 }
 
+export interface ReplyReference {
+  id: string;
+  senderName: string;
+  excerpt: string;
+}
+
 export interface DecryptedMessage {
   id: string;
   conversationId: string;
@@ -118,6 +124,7 @@ export interface DecryptedMessage {
   groupId?: string;
   sender?: PublicUser;
   text: string;
+  replyTo?: ReplyReference;
   timestamp: number;
   expiresAt: number | null;
   readAt: number | null;

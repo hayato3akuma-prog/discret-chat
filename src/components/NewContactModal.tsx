@@ -12,6 +12,7 @@ interface NewContactModalProps {
   onClose: () => void;
   token: string;
   currentUser: PublicUser;
+  friendAliases?: Record<string, string>;
   onSelectPeer: (peer: PublicUser) => void;
   onViewProfile?: (peer: PublicUser) => void;
 }
@@ -21,6 +22,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
   onClose,
   token,
   currentUser,
+  friendAliases = {},
   onSelectPeer,
   onViewProfile,
 }) => {
@@ -191,14 +193,18 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-white truncate">
-                        {user.displayName}
+                        {friendAliases[user.id]?.trim() || user.displayName}
                       </span>
                       {user.id === currentUser.id && (
                         <span className="text-xs text-zinc-500">· Moi</span>
                       )}
                     </div>
                     <p className="font-mono text-xs text-zinc-400 truncate">
-                      {user.bio ? `${user.handle} · ${user.bio}` : user.handle}
+                      {friendAliases[user.id]?.trim()
+                        ? `${user.handle} · ${user.displayName}`
+                        : user.bio
+                          ? `${user.handle} · ${user.bio}`
+                          : user.handle}
                     </p>
                   </div>
                 </button>

@@ -7,7 +7,11 @@ import {
   X,
 } from 'lucide-react';
 import { BANNER_PRESETS } from '../lib/banners';
-import { updateMyProfileInFirestore } from '../lib/firestoreStore';
+import {
+  isPseudonymAvailable,
+  normalizePseudoKey,
+  updateMyProfileInFirestore,
+} from '../lib/firestoreStore';
 import { compressBannerImage, compressSquareAvatar } from '../lib/imageUtils';
 import type {
   AccentToneKey,
@@ -76,6 +80,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [pseudoStatus, setPseudoStatus] = useState<
+    'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+  >('idle');
+  const [pseudoMessage, setPseudoMessage] = useState<string | null>(null);
 
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const bannerInputRef = useRef<HTMLInputElement | null>(null);
@@ -91,8 +99,51 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       setBannerPreset(user.bannerPreset ?? 'obsidian');
       setBannerDataUrl(user.bannerDataUrl ?? null);
       setError(null);
+      setPseudoStatus('idle');
+      setPseudoMessage(null);
     }
   }, [isOpen, user]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const trimmed = displayName.trim();
+    const nextKey = normalizePseudoKey(trimmed);
+    const currentKey = normalizePseudoKey(user.displayName);
+
+    if (trimmed.length < 2 || nextKey.length < 2) {
+      setPseudoStatus('invalid');
+      setPseudoMessage('Minimum 2 lettres ou chiffres.');
+      return;
+    }
+
+    if (nextKey === currentKey) {
+      setPseudoStatus('available');
+      setPseudoMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPseudoStatus('checking');
+    setPseudoMessage(null);
+    const timer = window.setTimeout(async () => {
+      const res = await isPseudonymAvailable(trimmed, user.id);
+      if (cancelled) return;
+      if (res.available) {
+        setPseudoStatus('available');
+        setPseudoMessage('Pseudonyme disponible');
+      } else {
+        setPseudoStatus('taken');
+        setPseudoMessage(
+          res.reason || 'Ce pseudonyme est déjà utilisé par une autre personne.'
+        );
+      }
+    }, 260);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [displayName, isOpen, user.displayName, user.id]);
 
   if (!isOpen) return null;
 
@@ -129,11 +180,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    const cleanPseudo = displayName.trim();
+    if (cleanPseudo.length < 2 || normalizePseudoKey(cleanPseudo).length < 2) {
+      setError('Le pseudonyme doit contenir au moins 2 lettres ou chiffres.');
+      return;
+    }
+    if (pseudoStatus === 'taken') {
+      setError('Ce pseudonyme est déjà utilisé par une autre personne.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const updated = await updateMyProfileInFirestore(user.id, {
-        displayName: displayName.trim() || user.displayName,
+        displayName: cleanPseudo,
         bio: bio.trim(),
         biography: biography.trim(),
         avatarDataUrl,
@@ -335,16 +395,34 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 htmlFor="profile-displayname"
                 className="block text-xs font-medium text-zinc-300 mb-1.5"
               >
-                Pseudonyme affiché
+                Pseudonyme unique
               </label>
               <input
                 id="profile-displayname"
                 type="text"
+                required
+                minLength={2}
                 maxLength={32}
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none"
               />
+              {pseudoStatus === 'checking' && (
+                <p className="mt-1 text-[11px] text-zinc-400">
+                  Vérification de disponibilité...
+                </p>
+              )}
+              {pseudoMessage && pseudoStatus !== 'checking' && (
+                <p
+                  className={`mt-1 text-[11px] ${
+                    pseudoStatus === 'available'
+                      ? 'text-emerald-400'
+                      : 'text-red-400'
+                  }`}
+                >
+                  {pseudoMessage}
+                </p>
+              )}
             </div>
 
             <div>
@@ -490,7 +568,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={
+                saving ||
+                pseudoStatus === 'checking' ||
+                pseudoStatus === 'taken' ||
+                pseudoStatus === 'invalid'
+              }
               className="flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 cursor-pointer"
             >
               {savedNotice ? (

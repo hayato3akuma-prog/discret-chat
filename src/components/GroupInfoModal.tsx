@@ -39,6 +39,7 @@ interface GroupInfoModalProps {
   onClose: () => void;
   group: GroupInfo | null;
   session: UnlockedSession;
+  friendAliases?: Record<string, string>;
   onGroupUpdated: (group: GroupInfo) => void;
   onGroupLeft: (groupId: string) => void;
   onGroupDeleted?: (groupId: string) => void;
@@ -50,6 +51,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
   onClose,
   group,
   session,
+  friendAliases = {},
   onGroupUpdated,
   onGroupLeft,
   onGroupDeleted,
@@ -532,10 +534,12 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                       <UserAvatar user={u} size="sm" />
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-white truncate">
-                          {u.displayName}
+                          {friendAliases[u.id]?.trim() || u.displayName}
                         </p>
                         <p className="font-mono text-[11px] text-zinc-400 truncate">
-                          {u.handle}
+                          {friendAliases[u.id]?.trim()
+                            ? `${u.handle} · ${u.displayName}`
+                            : u.handle}
                         </p>
                       </div>
                     </div>
@@ -559,11 +563,14 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                     <UserAvatar user={member} size="sm" />
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-white truncate">
-                        {member.displayName}
-                        {member.id === session.user.id ? ' (Vous)' : ''}
+                        {member.id === session.user.id
+                          ? `${member.displayName} (Vous)`
+                          : friendAliases[member.id]?.trim() || member.displayName}
                       </p>
                       <p className="font-mono text-[11px] text-zinc-400 truncate">
-                        {member.handle}
+                        {member.id !== session.user.id && friendAliases[member.id]?.trim()
+                          ? `${member.handle} · ${member.displayName}`
+                          : member.handle}
                       </p>
                     </div>
                   </button>

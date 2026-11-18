@@ -10,6 +10,7 @@ import {
   KeyRound,
   Lock,
   ShieldCheck,
+  Shuffle,
 } from 'lucide-react';
 import {
   createUserWithEmailAndPassword,
@@ -28,6 +29,7 @@ import {
   createDiscretAccountInFirestore,
   fetchPublicProfile,
   getPrivateUserDoc,
+  normalizePseudoKey,
 } from '../lib/firestoreStore';
 import type { PublicUser, UnlockedSession } from '../types';
 import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
@@ -162,9 +164,39 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     }
   }
 
+  function handleSuggestPseudonym() {
+    const prefixes = [
+      'Sora',
+      'Kael',
+      'Lyra',
+      'Nox',
+      'Orion',
+      'Vega',
+      'Echo',
+      'Kuro',
+      'Zeph',
+      'Nova',
+    ];
+    const base = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const bytes = new Uint8Array(2);
+    window.crypto.getRandomValues(bytes);
+    const num = ((bytes[0] << 8) | bytes[1]) % 9000 + 1000;
+    setDisplayName(`${base}_${num}`);
+    setCreateError(null);
+  }
+
   async function handleCreateAccount(e: React.FormEvent) {
     e.preventDefault();
     setCreateError(null);
+
+    const cleanPseudo = displayName.trim();
+    const pseudoKey = normalizePseudoKey(cleanPseudo);
+    if (cleanPseudo.length < 2 || pseudoKey.length < 2) {
+      setCreateError(
+        'Veuillez saisir un pseudonyme unique (au moins 2 lettres ou chiffres).'
+      );
+      return;
+    }
 
     setCreateLoading(true);
     try {
@@ -184,7 +216,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         const [createdUser, idToken] = await Promise.all([
           createDiscretAccountInFirestore({
             uid: cred.user.uid,
-            displayName: displayName.trim() || 'Anonyme',
+            displayName: cleanPseudo,
             identity,
           }),
           cred.user.getIdToken(),
@@ -200,7 +232,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           ecdsaPrivateJwk: identity.ecdsaPrivateJwk,
         });
       } catch (innerErr) {
-        await signOut(auth).catch(() => {});
+        await cred.user.delete().catch(async () => {
+          await signOut(auth).catch(() => {});
+        });
         throw innerErr;
       }
     } catch (err) {
@@ -320,7 +354,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
               <div
                 role="tablist"
                 aria-label="Mode d'accès"
-                className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 border border-white/[0.06]"
+                className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-white/[0.03] p-1 border border-white/[0.055]"
               >
                 <button
                   type="button"
@@ -332,8 +366,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                   }}
                   className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
                     tab === 'login'
-                      ? 'bg-white text-zinc-950 shadow-sm'
-                      : 'text-zinc-400 hover:text-white'
+                      ? 'bg-white/[0.11] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
+                      : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   Se connecter
@@ -348,8 +382,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                   }}
                   className={`rounded-lg py-2 px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
                     tab === 'create'
-                      ? 'bg-white text-zinc-950 shadow-sm'
-                      : 'text-zinc-400 hover:text-white'
+                      ? 'bg-white/[0.11] text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
+                      : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   Créer ma clé
@@ -420,23 +454,38 @@ export const AuthGate: React.FC<AuthGateProps> = ({
               ) : (
                 <form onSubmit={handleCreateAccount} className="space-y-4">
                   <div>
-                    <label
-                      htmlFor="display-name-input"
-                      className="block text-xs font-medium text-zinc-300 mb-2"
-                    >
-                      Pseudonyme affiché <span className="text-zinc-500">(optionnel)</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label
+                        htmlFor="display-name-input"
+                        className="block text-xs font-medium text-zinc-300"
+                      >
+                        Pseudonyme unique <span className="text-red-400">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleSuggestPseudonym}
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                      >
+                        <Shuffle className="h-3 w-3" />
+                        <span>Suggérer</span>
+                      </button>
+                    </div>
                     <input
                       id="display-name-input"
                       type="text"
+                      required
+                      minLength={2}
                       maxLength={32}
                       value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="Ex. Sora, Kael, ou laisser vide"
+                      onChange={(e) => {
+                        setDisplayName(e.target.value);
+                        if (createError) setCreateError(null);
+                      }}
+                      placeholder="Ex. Sora, Kael_07 (unique sur DISCRET)"
                       className="w-full glass-input rounded-xl px-3.5 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none"
                     />
                     <p className="mt-2 text-xs text-zinc-500">
-                      Une clé 120 bits et un identifiant public unique (ex. @sora#4a9f) seront générés localement.
+                      Chaque personne possède un pseudonyme unique (sans doublon), associé à une clé 120 bits et un identifiant public.
                     </p>
                   </div>
 

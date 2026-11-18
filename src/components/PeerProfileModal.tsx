@@ -5,9 +5,11 @@ import {
   Clock,
   Copy,
   MessageSquare,
+  Pencil,
   Phone,
   ShieldCheck,
   ShieldOff,
+  Trash2,
   UserCheck,
   UserMinus,
   UserPlus,
@@ -25,6 +27,8 @@ interface PeerProfileModalProps {
   peer: PublicUser | null;
   isSelf: boolean;
   relationship?: RelationshipState;
+  friendAlias?: string;
+  onSaveFriendAlias?: (userId: string, nickname: string) => Promise<void>;
   onOpenSecurity?: () => void;
   onStartChat?: (peer: PublicUser) => void;
   onStartCall?: (peer: PublicUser, callType: CallType) => void;
@@ -42,6 +46,8 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
   peer,
   isSelf,
   relationship = 'none',
+  friendAlias,
+  onSaveFriendAlias,
   onOpenSecurity,
   onStartChat,
   onStartCall,
@@ -55,6 +61,16 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
   const [copiedHandle, setCopiedHandle] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editingAlias, setEditingAlias] = useState(false);
+  const [aliasInput, setAliasInput] = useState('');
+
+  React.useEffect(() => {
+    if (isOpen && peer) {
+      setEditingAlias(false);
+      setAliasInput(friendAlias ?? '');
+      setActionError(null);
+    }
+  }, [isOpen, peer, friendAlias]);
 
   if (!isOpen || !peer) return null;
 
@@ -130,12 +146,21 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
           </div>
 
           <div className="flex items-center justify-between gap-2">
-            <h2
-              id="peer-profile-title"
-              className="font-[family-name:var(--font-display)] text-lg font-semibold text-white truncate"
-            >
-              {isSelf ? 'Notes chiffrées (Moi)' : peer.displayName}
-            </h2>
+            <div className="min-w-0">
+              <h2
+                id="peer-profile-title"
+                className="font-[family-name:var(--font-display)] text-lg font-semibold text-white truncate"
+              >
+                {isSelf
+                  ? 'Notes chiffrées (Moi)'
+                  : friendAlias?.trim() || peer.displayName}
+              </h2>
+              {!isSelf && friendAlias?.trim() && (
+                <p className="text-xs text-zinc-400 truncate">
+                  Pseudonyme public : {peer.displayName}
+                </p>
+              )}
+            </div>
             {effectiveRelation === 'friend' && (
               <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 shrink-0">
                 <UserCheck className="h-3.5 w-3.5" />
@@ -154,6 +179,97 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
             <p className="mt-1 text-xs font-medium text-zinc-300">
               {peer.bio}
             </p>
+          )}
+
+          {/* Custom Friend Nickname (Nom d'ami) */}
+          {!isSelf && onSaveFriendAlias && (
+            <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3.5">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                  Nom d’ami (personnel)
+                </p>
+                {!editingAlias && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAliasInput(friendAlias ?? '');
+                      setEditingAlias(true);
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-emerald-300 hover:text-emerald-200 transition-colors cursor-pointer"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    <span>{friendAlias?.trim() ? 'Modifier' : 'Ajouter un nom'}</span>
+                  </button>
+                )}
+              </div>
+
+              {editingAlias ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void runAction('alias', async () => {
+                      await onSaveFriendAlias(peer.id, aliasInput.trim());
+                      setEditingAlias(false);
+                    });
+                  }}
+                  className="space-y-2"
+                >
+                  <input
+                    type="text"
+                    autoFocus
+                    maxLength={32}
+                    value={aliasInput}
+                    onChange={(e) => setAliasInput(e.target.value)}
+                    placeholder={`Nom d’ami pour ${peer.displayName}...`}
+                    className="w-full glass-input rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+                  />
+                  <div className="flex items-center justify-end gap-1.5">
+                    {friendAlias?.trim() && (
+                      <button
+                        type="button"
+                        disabled={busyAction !== null}
+                        onClick={() =>
+                          runAction('alias-clear', async () => {
+                            await onSaveFriendAlias(peer.id, '');
+                            setAliasInput('');
+                            setEditingAlias(false);
+                          })
+                        }
+                        title="Supprimer le nom d'ami"
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-500/25 bg-red-500/10 px-2.5 py-1.5 text-[11px] font-medium text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        <span>Retirer</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() => setEditingAlias(false)}
+                      className="rounded-lg border border-white/[0.1] px-2.5 py-1.5 text-[11px] text-zinc-300 hover:bg-white/[0.06] cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={busyAction !== null}
+                      className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <Check className="h-3 w-3" />
+                      <span>{busyAction === 'alias' ? 'Enregistrement...' : 'Enregistrer'}</span>
+                    </button>
+                  </div>
+                </form>
+              ) : friendAlias?.trim() ? (
+                <p className="text-sm font-medium text-white">
+                  {friendAlias.trim()}
+                </p>
+              ) : (
+                <p className="text-xs italic text-zinc-500">
+                  Aucun nom d’ami défini · visible uniquement par vous.
+                </p>
+              )}
+            </div>
           )}
 
           {/* Biographie Section */}
