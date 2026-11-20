@@ -11,10 +11,13 @@ import {
   ChevronUp,
   Clock,
   Copy,
+  Download,
   Eye,
   ImagePlus,
   Loader2,
   Lock,
+  MessageSquare,
+  MoreHorizontal,
   Phone,
   Plus,
   Reply,
@@ -22,9 +25,10 @@ import {
   Send,
   ShieldCheck,
   ShieldOff,
-  SlidersHorizontal,
   Square,
+  SquarePen,
   Trash2,
+  User,
   UserCheck,
   UserPlus,
   Users,
@@ -34,6 +38,7 @@ import {
   X,
 } from 'lucide-react';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { type CallSignalPayload, useWebRTCCall } from '../hooks/useWebRTCCall';
 import { getBubbleClassNames, getMessageTextSizeClass } from '../lib/bubbleTheme';
@@ -88,7 +93,7 @@ import type {
   ReplyReference,
   UnlockedSession,
 } from '../types';
-import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
+import { AppInstallModal } from './AppInstallModal';
 import { CallOverlay } from './CallOverlay';
 import { CreateGroupModal } from './CreateGroupModal';
 import { FriendsModal } from './FriendsModal';
@@ -210,6 +215,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [sidebarFilter, setSidebarFilter] = useState('');
   const [sidebarTab, setSidebarTab] = useState<'all' | 'direct' | 'groups'>('all');
   const [ephemeralDuration, setEphemeralDuration] = useState<EphemeralDuration>(0);
+  const [ephemeralMenuOpen, setEphemeralMenuOpen] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [chatOptionsMenuOpen, setChatOptionsMenuOpen] = useState(false);
   const [inspectorMode, setInspectorMode] = useState(false);
 
   const [glassIntensity, setGlassIntensity] = useState<GlassIntensity>(() => {
@@ -246,6 +254,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
 
+  const pwaInstall = usePWAInstall();
   const push = usePushNotifications(session.token);
   const pushStateRef = useRef({
     isSubscribed: push.isSubscribed,
@@ -307,10 +316,41 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const chatMediaInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarSearchRef = useRef<HTMLInputElement | null>(null);
   const inChatSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const newMenuRef = useRef<HTMLDivElement | null>(null);
+  const chatOptionsMenuRef = useRef<HTMLDivElement | null>(null);
   const isNearBottomRef = useRef<boolean>(true);
   const knownMsgIdsRef = useRef<Set<string>>(new Set());
   const animatedNewMsgIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedInitialBatchRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!newMenuOpen && !chatOptionsMenuOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (newMenuOpen && newMenuRef.current && !newMenuRef.current.contains(target)) {
+        setNewMenuOpen(false);
+      }
+      if (
+        chatOptionsMenuOpen &&
+        chatOptionsMenuRef.current &&
+        !chatOptionsMenuRef.current.contains(target)
+      ) {
+        setChatOptionsMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setNewMenuOpen(false);
+        setChatOptionsMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [newMenuOpen, chatOptionsMenuOpen]);
 
   useEffect(() => {
     activeTargetRef.current = activeTarget;
@@ -1458,6 +1498,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   }
 
+  async function handleInstallTrigger() {
+    if (pwaInstall.isInstallable) {
+      const accepted = await pwaInstall.install();
+      if (accepted) return;
+    }
+    setIsInstallModalOpen(true);
+  }
+
   async function handleSelectPeer(peer: PublicUser) {
     try {
       await openConversationInFirestore(session.user.id, peer.id);
@@ -1466,6 +1514,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
     setActiveTarget({ kind: 'dm', peer });
     setMobileShowChat(true);
+    setEphemeralMenuOpen(false);
+    setChatOptionsMenuOpen(false);
     setConversations((prev) => {
       if (prev.some((c) => c.peer.id === peer.id)) {
         return prev.map((c) =>
@@ -1487,6 +1537,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   function handleSelectGroup(group: GroupInfo) {
     setActiveTarget({ kind: 'group', group });
     setMobileShowChat(true);
+    setEphemeralMenuOpen(false);
+    setChatOptionsMenuOpen(false);
     setGroups((prev) => {
       if (prev.some((item) => item.group.id === group.id)) {
         return prev.map((item) =>
@@ -1561,6 +1613,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     return list.sort((a, b) => b.sortTs - a.sortTs);
   }, [conversations, groups, sidebarFilter, sidebarTab, session.user.id, friendAliases]);
 
+  const totalUnreadCount = useMemo(
+    () => conversations.reduce((sum, c) => sum + c.unreadCount, 0),
+    [conversations]
+  );
+
   const activePeer = activeTarget?.kind === 'dm' ? activeTarget.peer : null;
   const activeGroup = activeTarget?.kind === 'group' ? activeTarget.group : null;
   const isSelfSelected = activePeer?.id === session.user.id;
@@ -1571,63 +1628,273 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   const messageTextSizeClass = getMessageTextSizeClass(messageTextSize);
 
+  const drawerSectionTitle =
+    sidebarTab === 'all'
+      ? 'Discussions'
+      : sidebarTab === 'direct'
+        ? 'Messages directs'
+        : 'Groupes';
+
   return (
     <div
       data-glass-intensity={glassIntensity}
-      className="app-canvas relative h-dvh w-full overflow-hidden flex"
+      className="app-canvas relative h-dvh w-full overflow-hidden flex flex-col"
     >
       {/* Multi-layered themed liquid ambient field for genuine glass refraction */}
       <ThemeBackdrop showTopSheen />
 
-      {/* Left Sidebar: Floating Liquid Glass Panel on Desktop */}
-      <aside
-        className={`relative z-10 flex h-full w-full md:w-[332px] lg:w-[360px] shrink-0 flex-col glass-liquid md:my-2.5 md:ml-2.5 md:h-[calc(100dvh-1.25rem)] md:rounded-[26px] border-r md:border overflow-hidden ${
-          mobileShowChat ? 'hidden md:flex' : 'flex'
-        }`}
-      >
-        {/* Top App Wordmark + Primary Utility Actions */}
-        <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5">
-          <div className="flex items-center gap-3 min-w-0">
-            {onOpenPresentation ? (
-              <button
-                type="button"
-                onClick={onOpenPresentation}
-                title="Voir la page de présentation de HOI"
-                className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white hover:text-emerald-300 transition-colors cursor-pointer whitespace-nowrap rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
-              >
-                HOI
-              </button>
-            ) : (
+      {/* Desktop Top Floating Command Header */}
+      <header className="relative z-30 hidden md:flex items-center justify-between gap-4 mx-2.5 mt-2.5 px-4 h-14 rounded-[22px] glass-liquid shrink-0 overflow-visible">
+        <div className="flex items-center gap-4 min-w-0">
+          {onOpenPresentation ? (
+            <button
+              type="button"
+              onClick={onOpenPresentation}
+              title="HOI — Page de présentation"
+              className="flex items-center gap-2.5 rounded-xl px-1.5 py-1 -ml-1.5 hover:bg-white/[0.05] transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+            >
+              <img
+                src="/hoi-icon.svg"
+                alt="HOI"
+                className="h-7 w-7 rounded-xl object-cover"
+              />
               <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
                 HOI
               </span>
-            )}
-            {onOpenPresentation && (
-              <button
-                type="button"
-                onClick={onOpenPresentation}
-                className="text-[11px] font-medium text-zinc-400 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
-              >
-                Présentation
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+            </button>
+          ) : (
+            <div className="flex items-center gap-2.5 shrink-0">
+              <img
+                src="/hoi-icon.svg"
+                alt="HOI"
+                className="h-7 w-7 rounded-xl object-cover"
+              />
+              <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
+                HOI
+              </span>
+            </div>
+          )}
+
+          <div className="h-5 w-px bg-white/[0.1] shrink-0" aria-hidden="true" />
+
+          <nav aria-label="Navigation principale" className="flex items-center gap-1">
+            {(
+              [
+                { key: 'all', label: 'Tout', count: totalUnreadCount },
+                { key: 'direct', label: 'Messages', count: 0 },
+                { key: 'groups', label: 'Groupes', count: 0 },
+              ] as const
+            ).map((tab) => {
+              const active = sidebarTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setSidebarTab(tab.key)}
+                  aria-pressed={active}
+                  className={`min-h-[36px] inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-medium transition-all whitespace-nowrap cursor-pointer ${
+                    active
+                      ? 'glass-control-active text-white'
+                      : 'text-zinc-400 hover:bg-white/[0.05] hover:text-white'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.count > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-emerald-400 text-zinc-950 font-mono text-[10px] font-bold tabular-nums">
+                      {tab.count > 99 ? '99+' : tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+
             <button
               type="button"
-              onClick={() => setIsProfileModalOpen(true)}
-              title="Personnaliser le profil et l'apparence"
-              aria-label="Personnaliser le profil"
-              className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              onClick={() => setIsFriendsModalOpen(true)}
+              className="min-h-[36px] inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-zinc-400 hover:bg-white/[0.05] hover:text-white transition-all whitespace-nowrap cursor-pointer"
             >
-              <SlidersHorizontal className="h-4 w-4" strokeWidth={1.75} />
+              <span>Amis</span>
+              {friendsSnapshot.incoming.length > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-emerald-400 text-zinc-950 font-mono text-[10px] font-bold tabular-nums">
+                  {friendsSnapshot.incoming.length}
+                </span>
+              )}
             </button>
+          </nav>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Primary "+ Nouveau" Action Menu */}
+          <div ref={newMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setNewMenuOpen((v) => !v)}
+              aria-expanded={newMenuOpen}
+              aria-haspopup="true"
+              className="btn-specular min-h-[36px] inline-flex items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold cursor-pointer whitespace-nowrap"
+            >
+              <SquarePen className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+              <span>Nouveau</span>
+            </button>
+
+            {newMenuOpen && (
+              <div className="glass-liquid animate-panel-enter absolute right-0 top-full mt-2 z-50 w-60 rounded-2xl p-1.5 shadow-2xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    setIsContactModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.08] transition-colors cursor-pointer"
+                >
+                  <span className="glass-control h-8 w-8 flex items-center justify-center rounded-lg text-white shrink-0">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <span className="block text-xs font-semibold text-white">
+                      Nouveau contact
+                    </span>
+                    <span className="block text-[11px] text-zinc-400 truncate">
+                      Ajouter par @identifiant
+                    </span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    setIsCreateGroupOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.08] transition-colors cursor-pointer"
+                >
+                  <span className="glass-control h-8 w-8 flex items-center justify-center rounded-lg text-white shrink-0">
+                    <Users className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <span className="block text-xs font-semibold text-white">
+                      Nouveau groupe
+                    </span>
+                    <span className="block text-[11px] text-zinc-400 truncate">
+                      Salon privé chiffré
+                    </span>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="h-5 w-px bg-white/[0.1] mx-0.5" aria-hidden="true" />
+
+          <ThemeSwitcherButton
+            variant="icon"
+            align="right"
+            direction="down"
+            buttonClassName="h-9 w-9 rounded-xl"
+          />
+
+          <button
+            type="button"
+            onClick={() => setIsNotificationsModalOpen(true)}
+            title="Notifications push"
+            aria-label="Notifications push"
+            className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
+              push.isSubscribed && push.permission === 'granted'
+                ? 'glass-control border-emerald-400/30 text-emerald-400'
+                : 'glass-control text-zinc-300 hover:text-white'
+            }`}
+          >
+            {push.isSubscribed && push.permission === 'granted' ? (
+              <BellRing className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
+            ) : (
+              <Bell className="h-4 w-4" strokeWidth={1.75} />
+            )}
+          </button>
+
+          {!pwaInstall.isInstalled && (
+            <button
+              type="button"
+              onClick={() => void handleInstallTrigger()}
+              title="Installer HOI (Huawei, Android, iOS, PC)"
+              aria-label="Installer l'application HOI"
+              className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer"
+            >
+              <Download className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsProfileModalOpen(true)}
+            title="Mon profil et apparence"
+            className="glass-control h-9 inline-flex items-center gap-2 rounded-xl px-2 py-1 hover:border-white/25 transition-all cursor-pointer"
+          >
+            <UserAvatar user={session.user} size="sm" />
+            <span className="hidden lg:inline text-xs font-medium text-white max-w-[110px] truncate pr-0.5">
+              {session.user.displayName}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleLockSession}
+            title="Verrouiller la session"
+            aria-label="Verrouiller la session"
+            className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-300 hover:border-rose-400/30 transition-all cursor-pointer"
+          >
+            <Lock className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
+      </header>
+
+      {/* Main 2-Pane Split Workspace */}
+      <div className="relative z-10 flex-1 min-h-0 flex md:gap-2.5 md:p-2.5 md:pt-2 overflow-hidden">
+      {/* Left Conversations Pane */}
+      <aside
+        className={`relative z-20 flex h-full w-full md:w-[320px] lg:w-[348px] shrink-0 flex-col glass-liquid md:rounded-[24px] border-r md:border overflow-hidden ${
+          mobileShowChat ? 'hidden md:flex' : 'flex'
+        }`}
+      >
+        {/* Mobile Compact Top Identity & Utility Bar */}
+        <div className="md:hidden flex items-center justify-between gap-2 px-3.5 pt-[max(0.65rem,env(safe-area-inset-top))] pb-2.5 border-b border-white/[0.07]">
+          <button
+            type="button"
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-xl p-1 -m-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
+          >
+            <UserAvatar user={session.user} size="sm" />
+            <div className="min-w-0">
+              <span className="block font-[family-name:var(--font-display)] text-sm font-semibold text-white truncate">
+                {session.user.displayName}
+              </span>
+              <span className="block font-mono text-[11px] text-zinc-400 truncate">
+                {session.user.handle}
+              </span>
+            </div>
+          </button>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!pwaInstall.isInstalled && (
+              <button
+                type="button"
+                onClick={() => void handleInstallTrigger()}
+                title="Installer l'application (Huawei / Mobile)"
+                aria-label="Installer l'application"
+                className="glass-control h-10 w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer"
+              >
+                <Download className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+            )}
+            <ThemeSwitcherButton
+              variant="icon"
+              align="right"
+              direction="down"
+              buttonClassName="h-10 w-10 rounded-xl"
+            />
             <button
               type="button"
               onClick={() => setIsNotificationsModalOpen(true)}
-              title="Notifications push en arrière-plan"
               aria-label="Notifications push"
-              className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
+              className={`h-10 w-10 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
                 push.isSubscribed && push.permission === 'granted'
                   ? 'glass-control border-emerald-400/30 text-emerald-400'
                   : 'glass-control text-zinc-300 hover:text-white'
@@ -1639,52 +1906,31 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 <Bell className="h-4 w-4" strokeWidth={1.75} />
               )}
             </button>
-            <ThemeSwitcherButton variant="icon" align="right" direction="down" />
             <button
               type="button"
               onClick={handleLockSession}
-              title="Verrouiller la session et effacer les clés de la mémoire"
               aria-label="Verrouiller la session"
-              className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="glass-control h-10 w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:text-rose-300 cursor-pointer"
             >
-              <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <Lock className="h-4 w-4" strokeWidth={1.75} />
             </button>
           </div>
         </div>
 
-        {/* User Profile Card with Banner */}
-        <div className="relative overflow-hidden border-b border-white/[0.06]">
-          <ProfileBanner
-            user={session.user}
-            className="h-14"
-            scrimClassName="bg-gradient-to-b from-black/20 via-black/45 to-black/85"
-          />
-          <div className="relative -mt-6 flex items-end justify-between gap-2.5 px-4 pb-3.5">
-            <button
-              type="button"
-              onClick={() => setIsProfileModalOpen(true)}
-              className="flex items-end gap-3 min-w-0 flex-1 text-left rounded-xl p-1 -m-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
-            >
-              <div className="rounded-full p-0.5 bg-black/65 backdrop-blur-md border border-white/20 shadow-lg shrink-0">
-                <UserAvatar user={session.user} size="sm" />
-              </div>
-              <div className="min-w-0 flex-1 pb-0.5">
-                <span className="block font-[family-name:var(--font-display)] text-sm font-semibold text-white truncate">
-                  {session.user.displayName}
-                </span>
-                <p className="text-[11px] text-zinc-400 truncate">
-                  {session.user.bio || 'Appuyez pour personnaliser'}
-                </p>
-              </div>
-            </button>
-
+        {/* Pane Header & Search */}
+        <div className="px-3.5 pt-3.5 pb-2.5 space-y-2.5">
+          {/* Desktop: Section Title + Copyable Handle */}
+          <div className="hidden md:flex items-center justify-between gap-2 px-0.5">
+            <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white truncate">
+              {drawerSectionTitle}
+            </h2>
             <button
               type="button"
               onClick={handleCopyOwnHandle}
               title="Copier votre identifiant public"
-              className="glass-control shrink-0 min-h-[32px] flex items-center gap-1.5 rounded-xl px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:text-white cursor-pointer"
+              className="glass-control inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-mono text-zinc-300 hover:text-white transition-colors cursor-pointer"
             >
-              <span className="max-w-[92px] truncate">{session.user.handle}</span>
+              <span className="truncate max-w-[120px]">{session.user.handle}</span>
               {copiedHandle ? (
                 <Check className="h-3 w-3 text-emerald-400 shrink-0" />
               ) : (
@@ -1692,10 +1938,27 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               )}
             </button>
           </div>
-        </div>
 
-        {/* Filter & Segmented Tabs */}
-        <div className="px-3.5 pt-3 pb-2 space-y-2.5">
+          {/* Mobile: Quick Create Actions */}
+          <div className="md:hidden grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setIsContactModalOpen(true)}
+              className="btn-specular min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="h-4 w-4 shrink-0" strokeWidth={2} />
+              <span>Contact</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCreateGroupOpen(true)}
+              className="glass-control min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-white cursor-pointer whitespace-nowrap"
+            >
+              <Users className="h-4 w-4 shrink-0" strokeWidth={1.85} />
+              <span>Groupe</span>
+            </button>
+          </div>
+
           <div className="relative flex items-center glass-input rounded-xl">
             <Search className="ml-3 h-3.5 w-3.5 text-zinc-500 shrink-0" />
             <input
@@ -1703,8 +1966,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               type="text"
               value={sidebarFilter}
               onChange={(e) => setSidebarFilter(e.target.value)}
-              placeholder="Filtrer discussions et groupes... (⌘K)"
-              className="w-full bg-transparent px-2.5 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+              placeholder="Rechercher... (⌘K)"
+              className="w-full bg-transparent px-2.5 py-2.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
             />
             {sidebarFilter && (
               <button
@@ -1717,33 +1980,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               </button>
             )}
           </div>
-
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/25 p-1 border border-white/[0.07] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]">
-            {(
-              [
-                { key: 'all', label: 'Tout' },
-                { key: 'direct', label: 'Directs' },
-                { key: 'groups', label: `Groupes (${groups.length})` },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setSidebarTab(t.key)}
-                className={`rounded-lg py-1.5 px-2 text-[11px] font-medium transition-all whitespace-nowrap cursor-pointer ${
-                  sidebarTab === t.key
-                    ? 'glass-control-active text-white'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Unified Thread List */}
-        <div className="flex-1 overflow-y-auto px-2.5 pb-4 space-y-1">
+        <div className="flex-1 overflow-y-auto px-2.5 pb-3 space-y-1">
           {loadingConversations ? (
             <div className="space-y-2 px-2 pt-2">
               {[0, 1, 2].map((i) => (
@@ -1755,7 +1995,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             </div>
           ) : visibleSidebarItems.length === 0 ? (
             <div className="px-4 py-10 text-center space-y-3">
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-zinc-400">
                 {sidebarTab === 'groups'
                   ? 'Aucun groupe pour le moment.'
                   : 'Aucune conversation trouvée.'}
@@ -1888,46 +2128,77 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           )}
         </div>
 
-        {/* Bottom quick actions + Desktop/Phone App Installer */}
-        <div className="border-t border-white/[0.07] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
-          <div className="grid grid-cols-3 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setIsContactModalOpen(true)}
-              className="glass-control min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl py-2 px-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer whitespace-nowrap"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-              <span>Contact</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsFriendsModalOpen(true)}
-              className="glass-control relative min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl py-2 px-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer whitespace-nowrap"
-            >
-              <UserPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-              <span>Amis</span>
-              {friendsSnapshot.incoming.length > 0 && (
-                <span className="font-mono text-[10px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-400/30 px-1.5 rounded-md tabular-nums">
-                  {friendsSnapshot.incoming.length}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsCreateGroupOpen(true)}
-              className="glass-control min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl py-2 px-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer whitespace-nowrap"
-            >
-              <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-              <span>Groupe</span>
-            </button>
-          </div>
-          <PWAInstallButton onOpenModal={() => setIsInstallModalOpen(true)} />
-        </div>
+        {/* Mobile Bottom Thumb-Zone Navigation Bar */}
+        <nav
+          aria-label="Navigation mobile"
+          className="md:hidden grid grid-cols-4 gap-1 border-t border-white/[0.07] bg-black/20 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        >
+          <button
+            type="button"
+            onClick={() => setSidebarTab('all')}
+            aria-pressed={sidebarTab === 'all'}
+            className={`relative min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium transition-all cursor-pointer ${
+              sidebarTab === 'all'
+                ? 'glass-control-active text-white'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4 shrink-0" strokeWidth={1.85} />
+            <span className="whitespace-nowrap">Tout</span>
+            {totalUnreadCount > 0 && (
+              <span className="absolute top-1 right-2.5 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-emerald-400 text-zinc-950 font-mono text-[9px] font-bold tabular-nums">
+                {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSidebarTab('direct')}
+            aria-pressed={sidebarTab === 'direct'}
+            className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium transition-all cursor-pointer ${
+              sidebarTab === 'direct'
+                ? 'glass-control-active text-white'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <User className="h-4 w-4 shrink-0" strokeWidth={1.85} />
+            <span className="whitespace-nowrap">Directs</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSidebarTab('groups')}
+            aria-pressed={sidebarTab === 'groups'}
+            className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium transition-all cursor-pointer ${
+              sidebarTab === 'groups'
+                ? 'glass-control-active text-white'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Users className="h-4 w-4 shrink-0" strokeWidth={1.85} />
+            <span className="whitespace-nowrap">Groupes</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsFriendsModalOpen(true)}
+            className="relative min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium text-zinc-400 hover:text-white transition-all cursor-pointer"
+          >
+            <UserPlus className="h-4 w-4 shrink-0" strokeWidth={1.85} />
+            <span className="whitespace-nowrap">Amis</span>
+            {friendsSnapshot.incoming.length > 0 && (
+              <span className="absolute top-1 right-2.5 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-emerald-400 text-zinc-950 font-mono text-[9px] font-bold tabular-nums">
+                {friendsSnapshot.incoming.length}
+              </span>
+            )}
+          </button>
+        </nav>
       </aside>
 
       {/* Right Chat Viewport */}
       <main
-        className={`relative z-10 flex-1 flex flex-col h-full min-w-0 overflow-hidden ${
+        className={`relative z-10 flex-1 flex flex-col h-full min-w-0 overflow-hidden md:rounded-[24px] ${
           !mobileShowChat ? 'hidden md:flex' : 'flex'
         }`}
       >
@@ -1959,8 +2230,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             {/* Floating Liquid Glass Top Dock (Header + Optional Search / TTS / Mobile Ephemeral Bar) */}
             <div
               ref={topDockRef}
-              className="pointer-events-none absolute top-0 left-0 right-0 z-20 px-2 pt-2 sm:px-3.5 sm:pt-2.5 space-y-1.5"
+              className="pointer-events-none absolute top-0 left-0 right-0 z-20 px-2 pt-2 sm:px-4 sm:pt-2.5"
             >
+              <div className="max-w-4xl mx-auto space-y-1.5">
               <header className="pointer-events-auto glass-liquid rounded-2xl flex items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-5 py-2 sm:py-2.5">
               <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <button
@@ -2058,26 +2330,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 ) : null}
               </div>
 
-              {/* Right Controls: Ephemeral Timer & Minimalist Action Cluster */}
-              <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
-                <div className="hidden sm:flex items-center gap-1 rounded-xl border border-white/[0.08] bg-black/25 p-1 mr-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]">
-                  <Clock className="ml-2 mr-1 h-3.5 w-3.5 text-zinc-500" />
-                  {EPHEMERAL_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setEphemeralDuration(opt.value)}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all whitespace-nowrap cursor-pointer ${
-                        ephemeralDuration === opt.value
-                          ? 'glass-control-active text-white'
-                          : 'text-zinc-400 hover:text-zinc-200 border border-transparent'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-
+              {/* Right Controls: Streamlined Action Cluster + Options Menu */}
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
@@ -2102,99 +2356,148 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   <Search className="h-4 w-4" strokeWidth={1.75} />
                 </button>
 
-                {tts.supported && (
-                  <button
-                    type="button"
-                    onClick={tts.toggleAutoRead}
-                    title={
-                      tts.autoRead
-                        ? 'Désactiver la lecture vocale automatique (locale)'
-                        : 'Activer la lecture vocale automatique des nouveaux messages (locale)'
-                    }
-                    aria-label={
-                      tts.autoRead
-                        ? 'Désactiver la lecture vocale automatique'
-                        : 'Activer la lecture vocale automatique'
-                    }
-                    aria-pressed={tts.autoRead}
-                    className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl cursor-pointer ${
-                      tts.autoRead
-                        ? 'glass-control-active border-emerald-400/35 text-emerald-300'
-                        : 'glass-control text-zinc-300 hover:text-white'
-                    }`}
-                  >
-                    {tts.autoRead ? (
-                      <Volume2 className="h-4 w-4" strokeWidth={1.75} />
-                    ) : (
-                      <VolumeX className="h-4 w-4" strokeWidth={1.75} />
-                    )}
-                  </button>
-                )}
+                {activePeer &&
+                  !isSelfSelected &&
+                  getRelationship(activePeer.id) !== 'blocked_by_me' &&
+                  getRelationship(activePeer.id) !== 'blocked_by_peer' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void call.startCall(activePeer, 'audio')}
+                        disabled={call.phase !== 'idle'}
+                        title="Appel audio"
+                        aria-label="Appel audio"
+                        className="glass-control h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white disabled:opacity-40 cursor-pointer"
+                      >
+                        <Phone className="h-4 w-4" strokeWidth={1.75} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void call.startCall(activePeer, 'video')}
+                        disabled={call.phase !== 'idle'}
+                        title="Appel vidéo"
+                        aria-label="Appel vidéo"
+                        className="glass-control h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white disabled:opacity-40 cursor-pointer"
+                      >
+                        <Video className="h-4 w-4" strokeWidth={1.75} />
+                      </button>
+                    </>
+                  )}
 
                 {activePeer ? (
-                  <div className="flex items-center gap-1 sm:gap-1.5">
-                    {!isSelfSelected &&
-                      getRelationship(activePeer.id) !== 'blocked_by_me' &&
-                      getRelationship(activePeer.id) !== 'blocked_by_peer' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void call.startCall(activePeer, 'audio')}
-                            disabled={call.phase !== 'idle'}
-                            title="Appel audio en temps réel"
-                            aria-label="Appel audio en temps réel"
-                            className="glass-control h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white disabled:opacity-40 cursor-pointer"
-                          >
-                            <Phone className="h-4 w-4" strokeWidth={1.75} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void call.startCall(activePeer, 'video')}
-                            disabled={call.phase !== 'idle'}
-                            title="Appel vidéo en temps réel"
-                            aria-label="Appel vidéo en temps réel"
-                            className="glass-control h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white disabled:opacity-40 cursor-pointer"
-                          >
-                            <Video className="h-4 w-4" strokeWidth={1.75} />
-                          </button>
-                        </>
-                      )}
-                    <button
-                      type="button"
-                      onClick={() => setIsSecurityModalOpen(true)}
-                      title="Vérifier le chiffrement E2EE"
-                      aria-label="Vérifier le chiffrement E2EE"
-                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer"
-                    >
-                      <ShieldCheck className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
-                      <span className="hidden sm:inline">Vérifier E2EE</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsSecurityModalOpen(true)}
+                    title="Sécurité & clés E2EE"
+                    aria-label="Sécurité et clés E2EE"
+                    className="glass-control h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                  >
+                    <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
                 ) : activeGroup ? (
-                  <div className="flex items-center gap-1 sm:gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsGroupInfoOpen(true)}
+                    title="Membres et paramètres du groupe"
+                    aria-label="Membres du groupe"
+                    className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer"
+                  >
+                    <Users className="h-4 w-4" strokeWidth={1.75} />
+                    <span className="hidden sm:inline">Membres</span>
+                  </button>
+                ) : null}
+
+                {(tts.supported || activeGroup || activePeer) && (
+                  <div ref={chatOptionsMenuRef} className="relative">
                     <button
                       type="button"
-                      onClick={() => setInspectorMode((v) => !v)}
-                      title="Inspecter les paquets chiffrés"
-                      aria-label="Inspecter les paquets chiffrés"
+                      onClick={() => setChatOptionsMenuOpen((v) => !v)}
+                      aria-expanded={chatOptionsMenuOpen}
+                      aria-haspopup="true"
+                      title="Plus d'options"
+                      aria-label="Plus d'options"
                       className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl cursor-pointer ${
-                        inspectorMode
-                          ? 'glass-control-active border-emerald-400/35 text-emerald-300'
+                        chatOptionsMenuOpen
+                          ? 'glass-control-active text-white'
                           : 'glass-control text-zinc-300 hover:text-white'
                       }`}
                     >
-                      <Eye className="h-4 w-4" strokeWidth={1.75} />
+                      <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsGroupInfoOpen(true)}
-                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer"
-                    >
-                      <Users className="h-4 w-4 text-zinc-200" strokeWidth={1.75} />
-                      <span className="hidden sm:inline">Membres</span>
-                    </button>
+
+                    {chatOptionsMenuOpen && (
+                      <div className="glass-liquid animate-panel-enter absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl p-1.5 shadow-2xl space-y-0.5">
+                        {tts.supported && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              tts.toggleAutoRead();
+                              setChatOptionsMenuOpen(false);
+                            }}
+                            className="w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.08] transition-colors cursor-pointer"
+                          >
+                            <span className="flex items-center gap-2.5 text-xs font-medium text-white">
+                              {tts.autoRead ? (
+                                <Volume2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                              ) : (
+                                <VolumeX className="h-4 w-4 text-zinc-400 shrink-0" />
+                              )}
+                              <span>Lecture vocale auto</span>
+                            </span>
+                            <span
+                              className={`text-[11px] font-medium ${
+                                tts.autoRead ? 'text-emerald-300' : 'text-zinc-500'
+                              }`}
+                            >
+                              {tts.autoRead ? 'Active' : 'Off'}
+                            </span>
+                          </button>
+                        )}
+
+                        {activeGroup && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectorMode((v) => !v);
+                              setChatOptionsMenuOpen(false);
+                            }}
+                            className="w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.08] transition-colors cursor-pointer"
+                          >
+                            <span className="flex items-center gap-2.5 text-xs font-medium text-white">
+                              <Eye
+                                className={`h-4 w-4 shrink-0 ${
+                                  inspectorMode ? 'text-emerald-400' : 'text-zinc-400'
+                                }`}
+                              />
+                              <span>Inspecteur chiffré</span>
+                            </span>
+                            <span
+                              className={`text-[11px] font-medium ${
+                                inspectorMode ? 'text-emerald-300' : 'text-zinc-500'
+                              }`}
+                            >
+                              {inspectorMode ? 'Actif' : 'Off'}
+                            </span>
+                          </button>
+                        )}
+
+                        {activePeer && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setChatOptionsMenuOpen(false);
+                              setViewedProfileUser(activePeer);
+                            }}
+                            className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+                          >
+                            <User className="h-4 w-4 text-zinc-400 shrink-0" />
+                            <span>Voir le profil</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ) : null}
+                )}
               </div>
             </header>
 
@@ -2238,36 +2541,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </div>
               </div>
             )}
-
-            {/* Mobile Ephemeral Selector Bar */}
-            <div className="pointer-events-auto sm:hidden glass-surface rounded-xl flex items-center justify-between gap-2 px-3 py-1.5">
-              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400 whitespace-nowrap shrink-0">
-                <Clock className="h-3 w-3 shrink-0" />
-                <span>Éphémère</span>
-              </span>
-              <div className="flex items-center gap-1 shrink-0">
-                {EPHEMERAL_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setEphemeralDuration(opt.value)}
-                    className={`min-h-[28px] rounded-lg px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                      ephemeralDuration === opt.value
-                        ? 'glass-control-active text-white'
-                        : 'text-zinc-400 hover:text-white border border-transparent'
-                    }`}
-                  >
-                    {opt.value === 0
-                      ? 'Permanent'
-                      : opt.value === 30
-                        ? '30s'
-                        : opt.value === 300
-                          ? '5m'
-                          : '24h'}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             {/* In-Thread Encrypted Message Search Bar */}
             {inChatSearchOpen && (
@@ -2346,6 +2619,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </button>
               </div>
             )}
+              </div>
             </div>
 
             {/* Messages Stream (glides smoothly behind the floating Liquid Glass header & composer docks) */}
@@ -2368,16 +2642,17 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   paddingTop: topDockHeight + 14,
                   paddingBottom: bottomDockHeight + 16,
                 }}
-                className="flex-1 overflow-y-auto px-4 sm:px-7"
+                className="flex-1 overflow-y-auto px-3 sm:px-4"
               >
+                <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col">
                 {loadingMessages ? (
-                  <div className="flex h-full items-center justify-center">
+                  <div className="flex flex-1 items-center justify-center">
                     <p className="text-xs text-zinc-500">
                       Déchiffrement local des messages...
                     </p>
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="flex h-full items-center justify-center">
+                  <div className="flex flex-1 items-center justify-center">
                     <div className="glass-liquid animate-panel-enter max-w-md w-full overflow-hidden rounded-3xl text-center">
                       {activePeer ? (
                         <>
@@ -2739,6 +3014,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   ref={messagesEndRef}
                   style={{ scrollMarginBottom: bottomDockHeight + 16 }}
                 />
+                </div>
               </div>
 
               {showScrollToBottom && (
@@ -2767,9 +3043,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             {/* Floating Liquid Glass Composer Dock */}
             <div
               ref={bottomDockRef}
-              className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3.5 sm:pb-3"
+              className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-4 sm:pb-3"
             >
-              <footer className="pointer-events-auto glass-liquid rounded-[22px] sm:rounded-[24px] px-2.5 sm:px-4 py-2.5">
+              <footer className="pointer-events-auto glass-liquid max-w-4xl mx-auto rounded-[22px] sm:rounded-[24px] px-2.5 sm:px-4 py-2.5">
               {activePeer &&
               !isSelfSelected &&
               (getRelationship(activePeer.id) === 'blocked_by_me' ||
@@ -2859,6 +3135,34 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     </div>
                   )}
 
+                  {ephemeralMenuOpen && (
+                    <div className="animate-tab-enter glass-surface mb-2 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2">
+                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-300 whitespace-nowrap">
+                        <Clock className="h-3.5 w-3.5 text-amber-300 shrink-0" />
+                        <span>Suppression automatique</span>
+                      </span>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {EPHEMERAL_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setEphemeralDuration(opt.value);
+                              setEphemeralMenuOpen(false);
+                            }}
+                            className={`min-h-[30px] rounded-lg px-2.5 py-1 text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                              ephemeralDuration === opt.value
+                                ? 'glass-control-active text-white'
+                                : 'text-zinc-400 hover:bg-white/[0.06] hover:text-white'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {sendError && (
                     <p className="mb-2 text-xs text-red-400">{sendError}</p>
                   )}
@@ -2871,16 +3175,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   />
                   <form
                     onSubmit={handleSendMessage}
-                    className="flex items-end gap-2 sm:gap-3"
+                    className="flex items-end gap-2 sm:gap-2.5"
                   >
-                    <div className="flex-1 glass-input rounded-2xl px-2.5 sm:px-3.5 py-2 flex items-end gap-2">
+                    <div className="flex-1 glass-input rounded-2xl px-2 sm:px-3 py-1.5 flex items-end gap-1.5">
                       <button
                         type="button"
                         disabled={preparingAttachment || sending}
                         onClick={() => chatMediaInputRef.current?.click()}
                         title="Joindre une image ou un GIF animé"
                         aria-label="Joindre une image ou un GIF animé"
-                        className="h-8 w-8 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                        className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
                       >
                         {preparingAttachment ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -2888,6 +3192,37 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                           <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
                         )}
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEphemeralMenuOpen((v) => !v)}
+                        aria-expanded={ephemeralMenuOpen}
+                        title={
+                          ephemeralDuration > 0
+                            ? `Message éphémère actif (${EPHEMERAL_OPTIONS.find((o) => o.value === ephemeralDuration)?.label})`
+                            : 'Régler le délai de suppression automatique'
+                        }
+                        aria-label="Régler le délai éphémère"
+                        className={`h-9 flex items-center justify-center gap-1 rounded-xl transition-all cursor-pointer shrink-0 ${
+                          ephemeralDuration > 0
+                            ? 'px-2.5 border border-amber-400/35 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+                            : ephemeralMenuOpen
+                              ? 'w-9 bg-white/[0.1] text-white'
+                              : 'w-9 text-zinc-400 hover:bg-white/[0.08] hover:text-white'
+                        }`}
+                      >
+                        <Clock className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                        {ephemeralDuration > 0 && (
+                          <span className="font-mono text-[11px] font-medium">
+                            {ephemeralDuration === 30
+                              ? '30s'
+                              : ephemeralDuration === 300
+                                ? '5m'
+                                : '24h'}
+                          </span>
+                        )}
+                      </button>
+
                       <textarea
                         ref={composerRef}
                         rows={1}
@@ -2912,7 +3247,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         }}
                         placeholder={
                           ephemeralDuration > 0
-                            ? `Message éphémère chiffré (${
+                            ? `Message éphémère (${
                                 EPHEMERAL_OPTIONS.find(
                                   (o) => o.value === ephemeralDuration
                                 )?.label
@@ -2921,7 +3256,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                               ? `Écrire dans ${activeGroup.name}...`
                               : 'Message, image ou GIF...'
                         }
-                        className="w-full py-1 resize-none bg-transparent text-sm leading-relaxed text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
+                        className="w-full py-1.5 resize-none bg-transparent text-sm leading-relaxed text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
                       />
                     </div>
                     <button
@@ -2950,49 +3285,114 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </div>
         ) : (
           <div className="flex h-full items-center justify-center p-6">
-            <div className="glass-liquid animate-panel-enter max-w-sm rounded-3xl p-7 text-center space-y-4">
-              <div className="glass-control mx-auto flex h-11 w-11 items-center justify-center rounded-xl text-zinc-100">
-                <Lock className="h-5 w-5" />
+            <div className="glass-liquid animate-panel-enter max-w-lg w-full rounded-3xl p-7 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <UserAvatar user={session.user} size="md" />
+                  <div className="min-w-0">
+                    <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold text-white truncate">
+                      Bonjour, {session.user.displayName}
+                    </h2>
+                    <p className="text-xs text-zinc-400">
+                      Choisissez une discussion ou démarrez un nouvel échange.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyOwnHandle}
+                  title="Copier votre identifiant"
+                  className="glass-control min-h-[36px] inline-flex items-center gap-2 self-start sm:self-auto rounded-xl px-3 py-1.5 font-mono text-xs text-zinc-200 hover:text-white cursor-pointer shrink-0"
+                >
+                  <span>{session.user.handle}</span>
+                  {copiedHandle ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5 opacity-65" />
+                  )}
+                </button>
               </div>
-              <div className="space-y-1.5">
-                <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
-                  Espace prêt et chiffré
-                </h2>
-                <p className="text-xs leading-relaxed text-zinc-400">
-                  Sélectionnez une conversation, ajoutez un contact par identifiant ou créez un groupe privé.
-                </p>
-              </div>
-              <div className="flex items-center justify-center gap-2 pt-1">
+
+              <div className="grid sm:grid-cols-3 gap-2.5">
                 <button
                   type="button"
                   onClick={() => setIsContactModalOpen(true)}
-                  className="btn-specular inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-medium cursor-pointer"
+                  className="glass-surface glass-interactive rounded-2xl p-4 text-left space-y-2 cursor-pointer"
                 >
-                  <Plus className="h-4 w-4" />
-                  <span>Contact</span>
+                  <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <span className="block text-xs font-semibold text-white">
+                      Nouveau contact
+                    </span>
+                    <span className="block mt-0.5 text-[11px] text-zinc-400">
+                      Ajouter par @identifiant
+                    </span>
+                  </div>
                 </button>
+
                 <button
                   type="button"
                   onClick={() => setIsCreateGroupOpen(true)}
-                  className="glass-control inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-medium text-white transition-colors cursor-pointer"
+                  className="glass-surface glass-interactive rounded-2xl p-4 text-left space-y-2 cursor-pointer"
                 >
-                  <Users className="h-4 w-4" />
-                  <span>Groupe</span>
+                  <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white">
+                    <Users className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <span className="block text-xs font-semibold text-white">
+                      Créer un groupe
+                    </span>
+                    <span className="block mt-0.5 text-[11px] text-zinc-400">
+                      Salon privé chiffré
+                    </span>
+                  </div>
                 </button>
-              </div>
-              {onOpenPresentation && (
+
                 <button
                   type="button"
-                  onClick={onOpenPresentation}
-                  className="text-xs text-zinc-400 hover:text-white hover:underline underline-offset-4 transition-colors cursor-pointer"
+                  onClick={() => setIsFriendsModalOpen(true)}
+                  className="glass-surface glass-interactive rounded-2xl p-4 text-left space-y-2 cursor-pointer"
                 >
-                  Découvrir toutes les fonctionnalités
+                  <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white">
+                    <UserPlus className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <span className="block text-xs font-semibold text-white">
+                      Amis{friendsSnapshot.incoming.length > 0 ? ` (${friendsSnapshot.incoming.length})` : ''}
+                    </span>
+                    <span className="block mt-0.5 text-[11px] text-zinc-400">
+                      Contacts & demandes
+                    </span>
+                  </div>
                 </button>
-              )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-white/[0.08] text-xs text-zinc-400">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="hover:text-white transition-colors cursor-pointer"
+                >
+                  Personnaliser le profil et les bulles
+                </button>
+                {onOpenPresentation && (
+                  <button
+                    type="button"
+                    onClick={onOpenPresentation}
+                    className="hover:text-white transition-colors cursor-pointer"
+                  >
+                    Découvrir HOI
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
       </main>
+      </div>
 
       <NewContactModal
         isOpen={isContactModalOpen}

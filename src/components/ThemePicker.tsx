@@ -158,12 +158,14 @@ interface ThemeSwitcherButtonProps {
   variant?: 'icon' | 'labeled';
   align?: 'left' | 'right';
   direction?: 'down' | 'up';
+  buttonClassName?: string;
 }
 
 export const ThemeSwitcherButton: React.FC<ThemeSwitcherButtonProps> = ({
   variant = 'icon',
   align = 'right',
   direction = 'down',
+  buttonClassName,
 }) => {
   const [appTheme, setAppTheme] = useAppTheme();
   const [open, setOpen] = useState(false);
@@ -203,7 +205,7 @@ export const ThemeSwitcherButton: React.FC<ThemeSwitcherButtonProps> = ({
           aria-haspopup="true"
           title={`Thème : ${currentDef.label}`}
           aria-label={`Changer le thème (${currentDef.label})`}
-          className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
+          className={`${buttonClassName ?? 'h-9 w-9 rounded-xl'} flex items-center justify-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
             open
               ? 'glass-control-active text-white'
               : 'glass-control text-zinc-300 hover:text-white'
