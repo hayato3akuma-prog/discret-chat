@@ -96,7 +96,7 @@ import type {
 import { AppInstallModal } from './AppInstallModal';
 import { CallOverlay } from './CallOverlay';
 import { CreateGroupModal } from './CreateGroupModal';
-import { FriendsModal } from './FriendsModal';
+import { FriendsPanel } from './FriendsModal';
 import { GroupAvatar } from './GroupAvatar';
 import { GroupInfoModal } from './GroupInfoModal';
 import { NewContactModal } from './NewContactModal';
@@ -213,7 +213,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [sendError, setSendError] = useState<string | null>(null);
 
   const [sidebarFilter, setSidebarFilter] = useState('');
-  const [sidebarTab, setSidebarTab] = useState<'all' | 'direct' | 'groups'>('all');
+  const [sidebarTab, setSidebarTab] = useState<'all' | 'direct' | 'groups' | 'friends'>('all');
   const [ephemeralDuration, setEphemeralDuration] = useState<EphemeralDuration>(0);
   const [ephemeralMenuOpen, setEphemeralMenuOpen] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
@@ -245,7 +245,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   });
 
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
-  const [isFriendsModalOpen, setIsFriendsModalOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
@@ -1053,7 +1052,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     async (data: { type?: string; peerId?: string; groupId?: string } | null | undefined) => {
       if (!data) return;
       if (data.type === 'friend_request') {
-        setIsFriendsModalOpen(true);
+        setSidebarTab('friends');
+        setMobileShowChat(false);
         return;
       }
       if (typeof data.groupId === 'string' && data.groupId) {
@@ -1633,7 +1633,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       ? 'Discussions'
       : sidebarTab === 'direct'
         ? 'Messages directs'
-        : 'Groupes';
+        : sidebarTab === 'groups'
+          ? 'Groupes'
+          : 'Amis';
 
   return (
     <div
@@ -1710,8 +1712,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
             <button
               type="button"
-              onClick={() => setIsFriendsModalOpen(true)}
-              className="min-h-[36px] inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-zinc-400 hover:bg-white/[0.05] hover:text-white transition-all whitespace-nowrap cursor-pointer"
+              onClick={() => setSidebarTab('friends')}
+              aria-pressed={sidebarTab === 'friends'}
+              className={`min-h-[36px] inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-medium transition-all whitespace-nowrap cursor-pointer ${
+                sidebarTab === 'friends'
+                  ? 'glass-control-active text-white'
+                  : 'text-zinc-400 hover:bg-white/[0.05] hover:text-white'
+              }`}
             >
               <span>Amis</span>
               {friendsSnapshot.incoming.length > 0 && (
@@ -1982,7 +1989,26 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Unified Thread List */}
+        {/* Unified Thread List or Inline Friends View */}
+        {sidebarTab === 'friends' ? (
+          <FriendsPanel
+            token={session.token}
+            currentUser={session.user}
+            snapshot={friendsSnapshot}
+            friendAliases={friendAliases}
+            onSaveFriendAlias={handleSaveFriendAlias}
+            getRelationship={getRelationship}
+            onViewProfile={(u) => setViewedProfileUser(u)}
+            onStartChat={handleSelectPeer}
+            onSendRequest={handleSendFriendRequest}
+            onAcceptRequest={handleAcceptFriendRequest}
+            onDeclineRequest={handleDeclineFriendRequest}
+            onRemoveFriend={handleRemoveFriend}
+            onBlockUser={handleBlockUser}
+            onUnblockUser={handleUnblockUser}
+            filterQuery={sidebarFilter}
+          />
+        ) : (
         <div className="flex-1 overflow-y-auto px-2.5 pb-3 space-y-1">
           {loadingConversations ? (
             <div className="space-y-2 px-2 pt-2">
@@ -2127,6 +2153,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             })
           )}
         </div>
+        )}
 
         {/* Mobile Bottom Thumb-Zone Navigation Bar */}
         <nav
@@ -2182,8 +2209,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
           <button
             type="button"
-            onClick={() => setIsFriendsModalOpen(true)}
-            className="relative min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium text-zinc-400 hover:text-white transition-all cursor-pointer"
+            onClick={() => setSidebarTab('friends')}
+            aria-pressed={sidebarTab === 'friends'}
+            className={`relative min-h-[48px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium transition-all cursor-pointer ${
+              sidebarTab === 'friends'
+                ? 'glass-control-active text-white'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
           >
             <UserPlus className="h-4 w-4 shrink-0" strokeWidth={1.85} />
             <span className="whitespace-nowrap">Amis</span>
@@ -3353,7 +3385,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setIsFriendsModalOpen(true)}
+                  onClick={() => {
+                    setSidebarTab('friends');
+                    setMobileShowChat(false);
+                  }}
                   className="glass-surface glass-interactive rounded-2xl p-4 text-left space-y-2 cursor-pointer"
                 >
                   <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white">
@@ -3402,25 +3437,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         friendAliases={friendAliases}
         onSelectPeer={handleSelectPeer}
         onViewProfile={(u) => setViewedProfileUser(u)}
-      />
-
-      <FriendsModal
-        isOpen={isFriendsModalOpen}
-        onClose={() => setIsFriendsModalOpen(false)}
-        token={session.token}
-        currentUser={session.user}
-        snapshot={friendsSnapshot}
-        friendAliases={friendAliases}
-        onSaveFriendAlias={handleSaveFriendAlias}
-        getRelationship={getRelationship}
-        onViewProfile={(u) => setViewedProfileUser(u)}
-        onStartChat={handleSelectPeer}
-        onSendRequest={handleSendFriendRequest}
-        onAcceptRequest={handleAcceptFriendRequest}
-        onDeclineRequest={handleDeclineFriendRequest}
-        onRemoveFriend={handleRemoveFriend}
-        onBlockUser={handleBlockUser}
-        onUnblockUser={handleUnblockUser}
       />
 
       <CreateGroupModal
