@@ -294,12 +294,12 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="group-info-title"
     >
-      <div className="glass-elevated w-full max-w-lg overflow-hidden rounded-2xl my-auto">
+      <div className="glass-liquid w-full max-w-lg overflow-hidden rounded-3xl my-auto">
         <div className="relative">
           <ProfileBanner
             user={{
@@ -320,7 +320,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
             <button
               type="button"
               onClick={() => bannerInputRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/15 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-black/80 transition-colors cursor-pointer"
+              className="glass-control backdrop-blur-md flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-medium text-white cursor-pointer"
             >
               <ImagePlus className="h-3.5 w-3.5" />
               <span>Bannière / GIF</span>
@@ -329,13 +329,13 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
               type="button"
               onClick={onClose}
               aria-label="Fermer"
-              className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-full bg-black/55 border border-white/15 text-zinc-200 hover:bg-black/80 hover:text-white transition-colors cursor-pointer"
+              className="glass-control backdrop-blur-md h-9 w-9 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
           <div className="absolute bottom-3 right-4 flex items-center gap-2">
-            <span className="flex items-center gap-1.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
+            <span className="glass-surface flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-medium text-emerald-300">
               <ShieldCheck className="h-3.5 w-3.5" />
               <span>E2EE · {group.members.length} membres</span>
             </span>
@@ -345,7 +345,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
         <div className="px-6 pb-6 pt-0 space-y-5">
           {/* Overlapping Group Avatar + Upload Buttons */}
           <div className="-mt-8 flex items-end justify-between gap-3">
-            <div className="rounded-2xl p-1 bg-[#0b0b0f] border border-white/10">
+            <div className="rounded-2xl p-1 bg-[#0b0b0f]/90 backdrop-blur-md border border-white/15 shadow-lg">
               <GroupAvatar
                 group={{
                   name: name || group.name,
@@ -367,7 +367,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
               <button
                 type="button"
                 onClick={() => avatarInputRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                className="glass-control flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-white cursor-pointer"
               >
                 <Camera className="h-3.5 w-3.5" />
                 <span>Photo / GIF</span>
@@ -377,7 +377,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                   type="button"
                   onClick={() => setAvatarDataUrl(null)}
                   title="Retirer la photo du groupe"
-                  className="rounded-xl border border-white/[0.08] p-1.5 text-zinc-400 hover:text-red-300 transition-colors cursor-pointer"
+                  className="glass-control rounded-xl p-1.5 text-zinc-300 hover:text-red-300 cursor-pointer"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -476,10 +476,10 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                     key={key}
                     type="button"
                     onClick={() => setAccentTone(key)}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-1.5 px-2 text-xs transition-colors cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 rounded-xl py-1.5 px-2 text-xs transition-all cursor-pointer ${
                       active
-                        ? 'border-white/30 bg-white/[0.12] text-white'
-                        : 'border-white/[0.07] bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06]'
+                        ? 'glass-control-active text-white'
+                        : 'glass-control text-zinc-400 hover:text-white'
                     }`}
                   >
                     <span className={`h-2.5 w-2.5 rounded-full ${tone.swatch}`} />
@@ -493,7 +493,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
               <button
                 type="submit"
                 disabled={saving}
-                className="flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                className="btn-specular flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium cursor-pointer"
               >
                 {savedNotice ? (
                   <>
@@ -558,7 +558,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
               {group.members.map((member) => (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                  className="glass-surface flex items-center justify-between gap-3 rounded-2xl px-3 py-2"
                 >
                   <button
                     type="button"
@@ -590,7 +590,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                         type="button"
                         onClick={() => onViewProfile(member)}
                         title="Voir le profil"
-                        className="min-h-[30px] min-w-[30px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer"
+                        className="glass-control min-h-[30px] min-w-[30px] flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer"
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </button>
@@ -623,7 +623,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                       type="button"
                       disabled={deleting}
                       onClick={() => setConfirmDelete(false)}
-                      className="rounded-xl border border-white/[0.1] px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] cursor-pointer"
+                      className="glass-control rounded-xl px-3 py-2 text-xs text-zinc-200 hover:text-white cursor-pointer"
                     >
                       Annuler
                     </button>
@@ -654,7 +654,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.06] transition-colors cursor-pointer"
+              className="glass-control rounded-xl px-4 py-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer"
             >
               Fermer
             </button>

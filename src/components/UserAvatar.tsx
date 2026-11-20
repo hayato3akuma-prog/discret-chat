@@ -110,7 +110,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
 
   return (
     <div
-      className={`relative flex shrink-0 items-center justify-center rounded-full border ${sizeClass} ${tone.avatarBg} ${tone.avatarBorder} font-[family-name:var(--font-display)] font-semibold text-white overflow-hidden`}
+      className={`relative flex shrink-0 items-center justify-center rounded-full border ${sizeClass} ${tone.avatarBg} ${tone.avatarBorder} shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)] font-[family-name:var(--font-display)] font-semibold text-white overflow-hidden`}
     >
       {isSelfVault ? (
         <Lock className={`${iconSize} text-zinc-200`} />

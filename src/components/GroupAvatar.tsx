@@ -26,7 +26,7 @@ export const GroupAvatar: React.FC<GroupAvatarProps> = ({
 
   return (
     <div
-      className={`relative flex shrink-0 items-center justify-center border ${sizeClass} ${tone.avatarBg} ${tone.avatarBorder} text-white overflow-hidden`}
+      className={`relative flex shrink-0 items-center justify-center border ${sizeClass} ${tone.avatarBg} ${tone.avatarBorder} shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)] text-white overflow-hidden`}
     >
       {group.avatarDataUrl ? (
         <img

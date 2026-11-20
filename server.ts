@@ -569,9 +569,9 @@ async function startServer() {
   app.post('/api/push/test', requireAuth, async (req, res) => {
     const uid = (req as AuthedRequest).authUid;
     const result = await sendPushToUser(uid, {
-      title: 'DISCRET • Test Push Service Worker',
+      title: 'HOI • Test Push Service Worker',
       body: 'Les notifications push en arrière-plan sont actives sur cet appareil.',
-      discreetTitle: 'DISCRET',
+      discreetTitle: 'HOI',
       discreetBody: 'Test de notification discrète réussi',
       tag: `discret-test-${Date.now()}`,
       forceShow: true,
@@ -615,7 +615,7 @@ async function startServer() {
           title: title.slice(0, 120),
           body: body.slice(0, 240),
           discreetTitle:
-            typeof discreetTitle === 'string' ? discreetTitle.slice(0, 80) : 'DISCRET',
+            typeof discreetTitle === 'string' ? discreetTitle.slice(0, 80) : 'HOI',
           discreetBody:
             typeof discreetBody === 'string'
               ? discreetBody.slice(0, 160)
@@ -800,7 +800,7 @@ async function startServer() {
           const callerName =
             typeof caller.displayName === 'string'
               ? caller.displayName
-              : 'Contact DISCRET';
+              : 'Contact HOI';
 
           prunePendingCallsForUser(data.toId);
           const pendingList = pendingCallInvites.get(data.toId) ?? [];
@@ -831,8 +831,8 @@ async function startServer() {
               callType === 'video'
                 ? `Appel vidéo entrant • ${callerName}`
                 : `Appel audio entrant • ${callerName}`,
-            body: 'Ouvrez DISCRET pour répondre en temps réel.',
-            discreetTitle: 'DISCRET',
+            body: 'Ouvrez HOI pour répondre en temps réel.',
+            discreetTitle: 'HOI',
             discreetBody: 'Appel chiffré entrant',
             tag: `call-${data.callId}`,
             forceShow: true,
@@ -996,7 +996,7 @@ self.addEventListener('activate', (event) => {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`DISCRET signaling & push relay running on http://0.0.0.0:${PORT}`);
+    console.log(`HOI signaling & push relay running on http://0.0.0.0:${PORT}`);
   });
 }
 

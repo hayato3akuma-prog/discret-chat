@@ -102,7 +102,7 @@ const CAPABILITIES: CapabilityItem[] = [
     title: 'Notifications Push discrètes et mode hors-ligne',
     spec: 'Web Push VAPID · Mode Discret · PWA installable',
     description:
-      'Recevez des alertes même lorsque l’application est fermée, tout en masquant le nom et le contenu grâce au mode discret. Installez DISCRET sur ordinateur et mobile.',
+      'Recevez des alertes même lorsque l’application est fermée, tout en masquant le nom et le contenu grâce au mode discret. Installez HOI sur ordinateur et mobile.',
     icon: BellRing,
   },
   {
@@ -192,7 +192,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             href="#top"
             className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white whitespace-nowrap shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
           >
-            DISCRET
+            HOI
           </a>
 
           <nav
@@ -443,7 +443,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Inventaire complet des fonctionnalités
                 </p>
                 <h2 className="mt-2 font-[family-name:var(--font-display)] text-2xl sm:text-4xl font-semibold tracking-tight text-white text-balance">
-                  Tout ce que DISCRET permet de faire au quotidien.
+                  Tout ce que HOI permet de faire au quotidien.
                 </h2>
                 <p className="mt-3 text-sm sm:text-base leading-relaxed text-zinc-400">
                   Chaque outil de l’espace de discussion fonctionne sans serveur de déchiffrement central : vos textes, médias, groupes, appels et préférences restent sous votre contrôle cryptographique.
@@ -527,7 +527,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 Une clé unique à la place des comptes Google, e-mails et mots de passe.
               </h2>
               <p className="mt-4 text-sm sm:text-base leading-relaxed text-zinc-400">
-                À la création de votre espace, votre navigateur génère localement une clé unique au format <span className="font-mono text-zinc-200">DISCRET-XXXX-...</span> ainsi que vos paires de clés ECDH et ECDSA P-256.
+                À la création de votre espace, votre navigateur génère localement une clé unique au format <span className="font-mono text-zinc-200">HOI-XXXX-...</span> ainsi que vos paires de clés ECDH et ECDSA P-256.
               </p>
 
               <div className="mt-8 divide-y divide-white/[0.07] border-t border-b border-white/[0.07]">
@@ -644,7 +644,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
                 <div className="relative z-10 rounded-2xl border border-white/[0.08] bg-black/35 px-4 py-3 flex items-center justify-between gap-3">
                   <span className="font-mono text-xs text-zinc-400 truncate">
-                    DISCRET-9F4K-2M8Q-7X1P-6R5T-...
+                    HOI-9F4K-2M8Q-7X1P-6R5T-...
                   </span>
                   <span className="text-[11px] font-medium text-zinc-300 whitespace-nowrap shrink-0">
                     Clé souveraine locale
@@ -788,7 +788,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 Appels WebRTC, synthèse vocale locale et notifications discrètes.
               </h2>
               <p className="mt-4 text-sm sm:text-base leading-relaxed text-zinc-400">
-                Au-delà du texte chiffré, DISCRET réunit l’audio, la vidéo, la lecture vocale sur l’appareil et le confort d’une application installable.
+                Au-delà du texte chiffré, HOI réunit l’audio, la vidéo, la lecture vocale sur l’appareil et le confort d’une application installable.
               </p>
 
               <div className="mt-8 space-y-6">
@@ -815,7 +815,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     Personnalisation Liquid Glass, GIF et installation PWA
                   </h3>
                   <p className="mt-1 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                    Personnalisez votre profil, vos bulles de messages, vos GIF animés (avatars, bannières et discussions) et l’intensité du verre dépoli. Activez les notifications Push discrètes et installez DISCRET sur Android, iOS, macOS ou Windows.
+                    Personnalisez votre profil, vos bulles de messages, vos GIF animés (avatars, bannières et discussions) et l’intensité du verre dépoli. Activez les notifications Push discrètes et installez HOI sur Android, iOS, macOS ou Windows.
                   </p>
                 </div>
               </div>
@@ -867,7 +867,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="mx-auto max-w-[1200px] px-4 sm:px-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-zinc-500">
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-[family-name:var(--font-display)] font-semibold text-zinc-300">
-              DISCRET
+              HOI
             </span>
             <span aria-hidden="true">·</span>
             <span>Web Crypto API · WebRTC DTLS-SRTP · Web Speech API</span>

@@ -337,7 +337,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   if (phase === 'idle') {
     if (!notice) return null;
     return (
-      <div className="fixed bottom-20 sm:bottom-5 right-3 sm:right-5 left-3 sm:left-auto z-50 glass-elevated rounded-2xl border border-white/[0.1] px-4 py-3 flex items-center gap-3 shadow-2xl sm:max-w-sm">
+      <div className="fixed bottom-20 sm:bottom-5 right-3 sm:right-5 left-3 sm:left-auto z-50 glass-liquid rounded-2xl px-4 py-3 flex items-center gap-3 sm:max-w-sm">
         <PhoneOff className="h-4 w-4 text-zinc-400 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-zinc-100 truncate">{notice}</p>
@@ -351,7 +351,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           <button
             type="button"
             onClick={() => onRedial(endedPrompt.peer, endedPrompt.callType)}
-            className="min-h-[34px] inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-950 hover:bg-zinc-200 transition-colors shrink-0 cursor-pointer"
+            className="btn-specular min-h-[34px] inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 cursor-pointer"
           >
             <PhoneCall className="h-3.5 w-3.5" />
             <span>Rappeler</span>
@@ -361,7 +361,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           type="button"
           onClick={onDismissNotice}
           aria-label="Fermer"
-          className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0 cursor-pointer"
+          className="glass-control min-h-[34px] min-w-[34px] flex items-center justify-center rounded-xl text-zinc-300 hover:text-white shrink-0 cursor-pointer"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -384,14 +384,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           aria-modal="true"
           aria-label="Appel entrant"
         >
-          <div className="glass-elevated w-full max-w-sm rounded-3xl overflow-hidden border border-white/[0.1] shadow-2xl">
+          <div className="glass-liquid w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl">
             <div className="relative">
               <ProfileBanner
                 user={peer}
                 className="h-28"
                 scrimClassName="bg-gradient-to-b from-black/30 via-black/55 to-[#09090d]"
               />
-              <div className="absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-lg bg-black/55 backdrop-blur-md border border-white/[0.08] px-2.5 py-1 text-[11px] font-medium text-emerald-300">
+              <div className="glass-surface absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-medium text-emerald-300">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 <span>DTLS-SRTP E2EE</span>
               </div>
@@ -400,7 +400,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             <div className="px-6 pb-6 -mt-10 relative text-center space-y-4">
               <div className="relative inline-flex">
                 <span className="absolute -inset-2 rounded-full bg-emerald-400/20 animate-ping" />
-                <div className="relative rounded-full p-1 bg-[#09090d] border border-white/15">
+                <div className="relative rounded-full p-1 bg-[#09090d]/90 backdrop-blur-md border border-white/20 shadow-lg">
                   <UserAvatar user={peer} size="lg" />
                 </div>
               </div>
@@ -439,7 +439,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                     type="button"
                     onClick={() => onAccept(false)}
                     title="Répondre en audio uniquement"
-                    className="min-h-[48px] px-4 flex items-center justify-center gap-1.5 rounded-2xl border border-white/[0.1] bg-white/[0.05] text-xs font-medium text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+                    className="glass-control min-h-[48px] px-4 flex items-center justify-center gap-1.5 rounded-2xl text-xs font-medium text-zinc-100 hover:text-white cursor-pointer"
                   >
                     <Phone className="h-4 w-4" />
                     <span>Audio</span>
@@ -449,7 +449,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 <button
                   type="button"
                   onClick={() => onAccept(callType === 'video')}
-                  className="flex-1 min-h-[48px] flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 transition-colors cursor-pointer"
+                  className="flex-1 min-h-[48px] flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-500 text-xs font-semibold text-zinc-950 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.45),0_10px_24px_-8px_rgba(52,211,153,0.45)] hover:brightness-95 transition-all cursor-pointer"
                 >
                   {callType === 'video' ? (
                     <Video className="h-4 w-4" />
@@ -587,7 +587,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 className={`h-9 w-9 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
                   audioMuted
                     ? 'bg-red-500/20 text-red-200 border border-red-500/35'
-                    : 'bg-white/[0.06] text-zinc-100 hover:bg-white/[0.12]'
+                    : 'glass-control text-zinc-100'
                 }`}
               >
                 {audioMuted ? (
@@ -602,7 +602,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 onClick={onToggleMinimize}
                 title="Agrandir l'appel"
                 aria-label="Agrandir l'appel"
-                className="h-9 w-9 flex items-center justify-center rounded-xl bg-white/[0.06] text-zinc-100 hover:bg-white/[0.12] transition-colors cursor-pointer"
+                className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-100 cursor-pointer"
               >
                 <Maximize2 className="h-4 w-4" />
               </button>
@@ -612,7 +612,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 onClick={onHangup}
                 title="Raccrocher"
                 aria-label="Raccrocher"
-                className="h-9 w-9 flex items-center justify-center rounded-xl bg-red-500 text-white hover:bg-red-400 transition-colors cursor-pointer"
+                className="h-9 w-9 flex items-center justify-center rounded-xl bg-red-500 text-white hover:bg-red-400 transition-colors cursor-pointer shadow-[inset_0_1px_0_0_rgba(255,255,255,0.25)]"
               >
                 <PhoneOff className="h-4 w-4" />
               </button>
@@ -637,7 +637,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md sm:p-6"
         role="dialog"
         aria-modal="true"
-        aria-label="Appel temps réel DISCRET"
+        aria-label="Appel temps réel HOI"
       >
         <div className="glass-elevated relative w-full h-dvh sm:h-[86dvh] sm:max-h-[720px] sm:max-w-4xl sm:rounded-3xl overflow-hidden border-0 sm:border sm:border-white/[0.14] bg-[#07070b] flex flex-col shadow-2xl">
           {/* Top Call Bar */}
@@ -650,10 +650,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                   setShowDevices(false);
                 }}
                 title="Vérifier l'empreinte P-256 et la qualité réseau"
-                className={`min-h-[34px] inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
+                className={`min-h-[34px] inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
                   showInspector
-                    ? 'border-emerald-400/45 bg-emerald-500/20 text-emerald-200'
-                    : 'border-white/[0.08] bg-white/[0.04] text-emerald-300 hover:bg-white/[0.08]'
+                    ? 'border border-emerald-400/45 bg-emerald-500/20 text-emerald-200'
+                    : 'glass-control text-emerald-300'
                 }`}
               >
                 <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
@@ -681,7 +681,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 type="button"
                 onClick={onToggleMinimize}
                 title="Réduire pour écrire dans la discussion"
-                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl bg-white/[0.06] text-zinc-200 hover:bg-white/[0.12] hover:text-white transition-colors cursor-pointer"
+                className="glass-control min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer"
               >
                 <Minimize2 className="h-4 w-4" />
               </button>
@@ -705,25 +705,25 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 </button>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[11px]">
-                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+                <div className="glass-surface rounded-xl px-3 py-2">
                   <p className="text-zinc-500">Latence (RTT)</p>
                   <p className="mt-0.5 font-mono text-zinc-100 tabular-nums">
                     {stats.rttMs !== null ? `${stats.rttMs} ms` : '—'}
                   </p>
                 </div>
-                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+                <div className="glass-surface rounded-xl px-3 py-2">
                   <p className="text-zinc-500">Débit reçu</p>
                   <p className="mt-0.5 font-mono text-zinc-100 tabular-nums">
                     {stats.bitrateKbps !== null ? `${stats.bitrateKbps} kbps` : '—'}
                   </p>
                 </div>
-                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+                <div className="glass-surface rounded-xl px-3 py-2">
                   <p className="text-zinc-500">Perte paquets</p>
                   <p className="mt-0.5 font-mono text-zinc-100 tabular-nums">
                     {stats.packetLossPct !== null ? `${stats.packetLossPct}%` : '—'}
                   </p>
                 </div>
-                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+                <div className="glass-surface rounded-xl px-3 py-2">
                   <p className="text-zinc-500">Transport</p>
                   <p className="mt-0.5 font-mono text-zinc-100 truncate">
                     {stats.transportLabel || (stats.resolution ? stats.resolution : 'ICE')}
@@ -926,10 +926,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               type="button"
               onClick={onToggleMute}
               title={audioMuted ? 'Réactiver le micro' : 'Couper le micro'}
-              className={`relative min-h-[48px] px-4 flex items-center gap-2 rounded-2xl border text-xs font-medium transition-colors cursor-pointer ${
+              className={`relative min-h-[48px] px-4 flex items-center gap-2 rounded-2xl text-xs font-medium transition-colors cursor-pointer ${
                 audioMuted
-                  ? 'border-red-500/40 bg-red-500/20 text-red-200'
-                  : 'border-white/[0.12] bg-white/[0.06] text-white hover:bg-white/[0.12]'
+                  ? 'border border-red-500/40 bg-red-500/20 text-red-200'
+                  : 'glass-control text-white'
               }`}
               style={
                 !audioMuted && localAudioLevel > 0.06
@@ -951,10 +951,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               type="button"
               onClick={() => void onToggleVideo()}
               title={videoEnabled ? 'Couper la caméra' : 'Activer la caméra'}
-              className={`min-h-[48px] px-4 flex items-center gap-2 rounded-2xl border text-xs font-medium transition-colors cursor-pointer ${
+              className={`min-h-[48px] px-4 flex items-center gap-2 rounded-2xl text-xs font-medium cursor-pointer ${
                 videoEnabled && !screenSharing
-                  ? 'border-white/30 bg-white text-zinc-950 hover:bg-zinc-200'
-                  : 'border-white/[0.12] bg-white/[0.06] text-white hover:bg-white/[0.12]'
+                  ? 'btn-specular'
+                  : 'glass-control text-white'
               }`}
             >
               {videoEnabled && !screenSharing ? (
@@ -973,7 +973,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 onClick={() => void onSwitchCamera()}
                 title="Basculer caméra avant / arrière"
                 aria-label="Basculer caméra avant / arrière"
-                className="min-h-[48px] px-3.5 flex items-center gap-2 rounded-2xl border border-white/[0.12] bg-white/[0.06] text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                className="glass-control min-h-[48px] px-3.5 flex items-center gap-2 rounded-2xl text-xs font-medium text-white cursor-pointer"
               >
                 <SwitchCamera className="h-4 w-4" />
                 <span className="hidden md:inline">Caméra</span>
@@ -987,10 +987,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 title={
                   screenSharing ? 'Arrêter le partage d’écran' : 'Partager l’écran'
                 }
-                className={`min-h-[48px] px-3.5 flex items-center gap-2 rounded-2xl border text-xs font-medium transition-colors cursor-pointer ${
+                className={`min-h-[48px] px-3.5 flex items-center gap-2 rounded-2xl text-xs font-medium transition-colors cursor-pointer ${
                   screenSharing
-                    ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
-                    : 'border-white/[0.12] bg-white/[0.06] text-white hover:bg-white/[0.12]'
+                    ? 'border border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
+                    : 'glass-control text-white'
                 }`}
               >
                 <MonitorUp className="h-4 w-4" />
@@ -1009,10 +1009,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 }}
                 title="Choisir micro et sortie audio"
                 aria-label="Choisir les périphériques audio"
-                className={`min-h-[48px] px-3.5 flex items-center gap-2 rounded-2xl border text-xs font-medium transition-colors cursor-pointer ${
+                className={`min-h-[48px] px-3.5 flex items-center gap-2 rounded-2xl text-xs font-medium cursor-pointer ${
                   showDevices
-                    ? 'border-white/30 bg-white/15 text-white'
-                    : 'border-white/[0.12] bg-white/[0.06] text-white hover:bg-white/[0.12]'
+                    ? 'glass-control-active text-white'
+                    : 'glass-control text-white'
                 }`}
               >
                 <SlidersHorizontal className="h-4 w-4" />
@@ -1023,7 +1023,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               type="button"
               onClick={onHangup}
               title="Raccrocher"
-              className="min-h-[48px] px-5 sm:px-6 flex items-center gap-2 rounded-2xl bg-red-500 text-xs font-semibold text-white hover:bg-red-400 transition-colors cursor-pointer"
+              className="min-h-[48px] px-5 sm:px-6 flex items-center gap-2 rounded-2xl bg-gradient-to-b from-red-500 to-red-600 text-xs font-semibold text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.25),0_8px_20px_-6px_rgba(239,68,68,0.45)] hover:brightness-95 transition-all cursor-pointer"
             >
               <PhoneOff className="h-4 w-4" />
               <span>Raccrocher</span>

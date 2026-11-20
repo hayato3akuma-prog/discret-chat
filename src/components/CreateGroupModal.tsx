@@ -201,12 +201,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="create-group-title"
     >
-      <div className="glass-elevated w-full max-w-lg rounded-2xl p-6 my-auto">
+      <div className="glass-liquid w-full max-w-lg rounded-3xl p-6 my-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <Users className="h-5 w-5 text-zinc-200" />
@@ -221,7 +221,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Fermer"
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
+            className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -229,7 +229,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Live Group Preview Card with Custom Banner & Photo */}
-          <div className="overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.025]">
+          <div className="glass-surface overflow-hidden rounded-2xl">
             <div className="relative">
               <ProfileBanner
                 user={{
@@ -249,7 +249,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               <button
                 type="button"
                 onClick={() => bannerInputRef.current?.click()}
-                className="absolute top-2.5 right-2.5 flex items-center gap-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/15 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-black/80 transition-colors cursor-pointer"
+                className="glass-control backdrop-blur-md absolute top-2.5 right-2.5 flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium text-white cursor-pointer"
               >
                 <ImagePlus className="h-3.5 w-3.5" />
                 <span>Bannière / GIF</span>
@@ -258,7 +258,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
             <div className="px-4 pb-3.5">
               <div className="-mt-8 flex items-end justify-between gap-3">
-                <div className="rounded-2xl p-1 bg-[#0b0b0f] border border-white/10">
+                <div className="rounded-2xl p-1 bg-[#0b0b0f]/90 backdrop-blur-md border border-white/15 shadow-lg">
                   <GroupAvatar
                     group={{
                       name: name.trim() || 'Nouveau groupe',
@@ -280,7 +280,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   <button
                     type="button"
                     onClick={() => avatarInputRef.current?.click()}
-                    className="flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                    className="glass-control flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-white cursor-pointer"
                   >
                     <Camera className="h-3.5 w-3.5" />
                     <span>Photo / GIF</span>
@@ -290,7 +290,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                       type="button"
                       onClick={() => setAvatarDataUrl(null)}
                       title="Retirer la photo"
-                      className="rounded-xl border border-white/[0.08] p-1.5 text-zinc-400 hover:text-red-300 transition-colors cursor-pointer"
+                      className="glass-control rounded-xl p-1.5 text-zinc-300 hover:text-red-300 cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -409,10 +409,10 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                     key={key}
                     type="button"
                     onClick={() => setAccentTone(key)}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-1.5 px-2 text-xs transition-colors cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 rounded-xl py-1.5 px-2 text-xs transition-all cursor-pointer ${
                       active
-                        ? 'border-white/30 bg-white/[0.12] text-white'
-                        : 'border-white/[0.07] bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06]'
+                        ? 'glass-control-active text-white'
+                        : 'glass-control text-zinc-400 hover:text-white'
                     }`}
                   >
                     <span className={`h-2.5 w-2.5 rounded-full ${tone.swatch}`} />
@@ -441,7 +441,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                     key={member.id}
                     type="button"
                     onClick={() => toggleMember(member)}
-                    className="flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.07] px-2.5 py-1 text-xs text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                    className="glass-control flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs text-white cursor-pointer"
                   >
                     <span>{friendAliases[member.id]?.trim() || member.displayName}</span>
                     <X className="h-3 w-3 text-zinc-400" />
@@ -462,7 +462,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             </div>
 
             {query.trim().length < 2 && friends.length > 0 && (
-              <div className="mt-2 max-h-32 overflow-y-auto space-y-1 rounded-xl border border-white/[0.07] bg-black/25 p-1.5">
+              <div className="glass-surface mt-2 max-h-32 overflow-y-auto space-y-1 rounded-2xl p-1.5">
                 <p className="px-2 py-1 text-[11px] font-medium text-zinc-400">
                   Vos amis
                 </p>
@@ -563,14 +563,14 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.06] transition-colors cursor-pointer"
+                className="glass-control rounded-xl px-4 py-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer"
               >
                 Annuler
               </button>
               <button
                 type="submit"
                 disabled={creating || !name.trim()}
-                className="rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-45 cursor-pointer"
+                className="btn-specular rounded-xl px-4 py-2 text-xs font-medium disabled:opacity-45 cursor-pointer"
               >
                 {creating ? 'Chiffrement...' : 'Créer le groupe'}
               </button>

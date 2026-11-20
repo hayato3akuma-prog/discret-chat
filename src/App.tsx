@@ -195,7 +195,7 @@ export default function App() {
   if (!authReady || restoring) {
     return (
       <div className="h-dvh w-full bg-[#050507] flex items-center justify-center text-xs text-zinc-500">
-        Initialisation du coffre chiffré DISCRET...
+        Initialisation du coffre chiffré HOI...
       </div>
     );
   }

@@ -246,14 +246,14 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                       type="button"
                       disabled={busyAction !== null}
                       onClick={() => setEditingAlias(false)}
-                      className="rounded-lg border border-white/[0.1] px-2.5 py-1.5 text-[11px] text-zinc-300 hover:bg-white/[0.06] cursor-pointer"
+                      className="glass-control rounded-xl px-2.5 py-1.5 text-[11px] text-zinc-200 hover:text-white cursor-pointer"
                     >
                       Annuler
                     </button>
                     <button
                       type="submit"
                       disabled={busyAction !== null}
-                      className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 cursor-pointer"
+                      className="btn-specular inline-flex items-center gap-1 rounded-xl px-3 py-1.5 text-[11px] font-medium disabled:opacity-50 cursor-pointer"
                     >
                       <Check className="h-3 w-3" />
                       <span>{busyAction === 'alias' ? 'Enregistrement...' : 'Enregistrer'}</span>

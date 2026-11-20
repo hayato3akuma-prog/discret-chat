@@ -14,8 +14,8 @@ export default defineConfig(() => {
         includeAssets: ['apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'DISCRET — Messagerie Privée',
-          short_name: 'DISCRET',
+          name: 'HOI — Messagerie Privée',
+          short_name: 'HOI',
           description:
             'Messagerie privée chiffrée de bout en bout en noir glassmorphisme, sans e-mail et par clé unique.',
           theme_color: '#050507',

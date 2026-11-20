@@ -1,11 +1,11 @@
 /* eslint-disable no-restricted-globals */
-// DISCRET Service Worker — Web Push & Notification Click Handlers
+// HOI Service Worker — Web Push & Notification Click Handlers
 
 self.addEventListener('push', (event) => {
   event.waitUntil(
     (async () => {
       let payload = {
-        title: 'DISCRET',
+        title: 'HOI',
         body: 'Nouveau message chiffré reçu.',
         tag: 'discret-message',
         forceShow: false,
@@ -60,7 +60,7 @@ self.addEventListener('push', (event) => {
         return;
       }
 
-      await self.registration.showNotification(payload.title || 'DISCRET', {
+      await self.registration.showNotification(payload.title || 'HOI', {
         body: payload.body || 'Nouveau message chiffré reçu.',
         icon: '/pwa-192x192.png',
         badge: '/pwa-192x192.png',

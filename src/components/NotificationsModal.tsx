@@ -51,12 +51,12 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="notifications-modal-title"
     >
-      <div className="glass-elevated w-full max-w-lg rounded-2xl p-6 space-y-5 max-h-[90dvh] overflow-y-auto">
+      <div className="glass-liquid w-full max-w-lg rounded-3xl p-6 space-y-5 max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {isActive ? (
@@ -75,18 +75,18 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Fermer"
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
+            className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <p className="text-xs leading-relaxed text-zinc-400">
-          Recevez des alertes en temps réel via le Service Worker lorsqu’un nouveau message chiffré, un message de groupe ou une demande d’ami arrive — même lorsque DISCRET est en arrière-plan ou fermé.
+          Recevez des alertes en temps réel via le Service Worker lorsqu’un nouveau message chiffré, un message de groupe ou une demande d’ami arrive — même lorsque HOI est en arrière-plan ou fermé.
         </p>
 
         {/* Current status card */}
-        <div className="rounded-xl border border-white/[0.08] bg-black/40 p-4 space-y-3">
+        <div className="glass-surface rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               {isActive ? (
@@ -108,7 +108,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                 </p>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
                   {!supported
-                    ? 'Sur iPhone/iPad, installez d’abord DISCRET sur l’écran d’accueil (iOS 16.4+).'
+                    ? 'Sur iPhone/iPad, installez d’abord HOI sur l’écran d’accueil (iOS 16.4+).'
                     : permission === 'denied'
                       ? 'Réautorisez les notifications dans les réglages du site de votre navigateur.'
                       : isActive
@@ -126,7 +126,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                   type="button"
                   disabled={loading}
                   onClick={() => void onEnable()}
-                  className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 cursor-pointer"
+                  className="btn-specular flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium disabled:opacity-50 cursor-pointer"
                 >
                   <BellRing className="h-3.5 w-3.5" />
                   <span>
@@ -139,7 +139,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                     type="button"
                     disabled={testing}
                     onClick={() => void onSendTest()}
-                    className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 cursor-pointer"
+                    className="btn-specular flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium disabled:opacity-50 cursor-pointer"
                   >
                     <Send className="h-3.5 w-3.5" />
                     <span>{testing ? 'Envoi...' : 'Tester une notification'}</span>
@@ -148,7 +148,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                     type="button"
                     disabled={loading}
                     onClick={() => void onDisable()}
-                    className="flex items-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.09] hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
+                    className="glass-control flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-medium text-zinc-200 hover:text-white disabled:opacity-50 cursor-pointer"
                   >
                     <BellOff className="h-3.5 w-3.5" />
                     <span>{loading ? 'Désactivation...' : 'Désactiver'}</span>
@@ -160,7 +160,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
         </div>
 
         {/* Discreet preview toggle */}
-        <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3">
+        <div className="glass-surface flex items-center justify-between rounded-2xl px-4 py-3.5">
           <div className="flex items-center gap-2.5 pr-4">
             <EyeOff className="h-4 w-4 text-zinc-300 shrink-0" />
             <div>
@@ -192,7 +192,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
         </div>
 
         {/* Zero-knowledge privacy note */}
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3 flex items-start gap-2.5">
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3 flex items-start gap-2.5">
           <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
           <p className="text-[11px] leading-relaxed text-zinc-300">
             <span className="font-medium text-white">Confidentialité de bout en bout préservée :</span>{' '}
@@ -201,7 +201,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
         </div>
 
         {inIframe && (
-          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-[11px] leading-relaxed text-amber-200">
+          <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-[11px] leading-relaxed text-amber-200">
             Aperçu intégré détecté : certains navigateurs bloquent les demandes de permission push dans un iframe. Ouvrez l’application dans un onglet dédié ou installez-la en tant qu’application autonome si le bouton est bloqué.
           </div>
         )}
@@ -215,7 +215,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-white/[0.06] transition-colors cursor-pointer"
+            className="glass-control rounded-xl px-4 py-2 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer"
           >
             Fermer
           </button>

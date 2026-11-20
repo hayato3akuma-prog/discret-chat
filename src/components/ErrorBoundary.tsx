@@ -29,7 +29,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   override componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('DISCRET ErrorBoundary caught error:', error, info);
+    console.error('HOI ErrorBoundary caught error:', error, info);
   }
 
   override render() {
@@ -38,8 +38,12 @@ export class ErrorBoundary extends React.Component<
     }
 
     return (
-      <div className="min-h-screen w-full bg-[#050507] text-[#F4F4F5] flex items-center justify-center p-4">
-        <div className="glass-elevated w-full max-w-md rounded-2xl p-6 text-center space-y-4">
+      <div className="relative min-h-screen w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex items-center justify-center p-4">
+        <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
+          <div className="liquid-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[500px] w-[700px] rounded-full bg-sky-200/[0.045] blur-[140px]" />
+          <div className="liquid-orb-b absolute -bottom-44 right-1/4 h-[400px] w-[500px] rounded-full bg-emerald-400/[0.035] blur-[140px]" />
+        </div>
+        <div className="glass-liquid relative z-10 w-full max-w-md rounded-3xl p-7 text-center space-y-4">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-400">
             <AlertTriangle className="h-5 w-5" />
           </div>
@@ -54,10 +58,10 @@ export class ErrorBoundary extends React.Component<
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+            className="btn-specular inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium cursor-pointer"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            <span>Recharger DISCRET</span>
+            <span>Recharger HOI</span>
           </button>
         </div>
       </div>

@@ -257,7 +257,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   function handleDownloadKeyFile() {
     if (!generatedKey || !pendingSession) return;
     const content = [
-      'DISCRET — CLÉ UNIQUE D’ACCÈS PRIVÉ',
+      'HOI — CLÉ UNIQUE D’ACCÈS PRIVÉ',
       '========================================',
       `Identifiant public : ${pendingSession.user.handle}`,
       `Pseudonyme         : ${pendingSession.user.displayName}`,
@@ -276,7 +276,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `discret-cle-${pendingSession.user.handle.replace(/[^a-z0-9]/gi, '')}.txt`;
+    link.download = `hoi-cle-${pendingSession.user.handle.replace(/[^a-z0-9]/gi, '')}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -310,11 +310,11 @@ export const AuthGate: React.FC<AuthGateProps> = ({
               onClick={onShowPresentation}
               className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white hover:text-zinc-300 transition-colors whitespace-nowrap cursor-pointer"
             >
-              DISCRET
+              HOI
             </button>
           ) : (
             <span className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-white whitespace-nowrap">
-              DISCRET
+              HOI
             </span>
           )}
           {onShowPresentation && (
@@ -407,7 +407,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                         type={showLoginKey ? 'text' : 'password'}
                         value={loginKey}
                         onChange={(e) => setLoginKey(e.target.value)}
-                        placeholder="DISCRET-XXXX-XXXX-XXXX-XXXX-..."
+                        placeholder="HOI-XXXX-XXXX-XXXX-XXXX-..."
                         autoComplete="off"
                         spellCheck={false}
                         className="w-full bg-transparent px-3 py-3 text-sm font-mono text-white placeholder:text-zinc-600 focus:outline-none"
@@ -440,7 +440,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                   <button
                     type="submit"
                     disabled={loginLoading}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-white py-3 px-4 text-sm font-medium text-zinc-950 transition-all hover:bg-zinc-200 disabled:opacity-50 cursor-pointer"
+                    className="btn-specular w-full flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium disabled:opacity-50 cursor-pointer"
                   >
                     <span>
                       {loginLoading ? 'Déchiffrement en cours...' : 'Déverrouiller le coffre'}
@@ -482,7 +482,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                         setDisplayName(e.target.value);
                         if (createError) setCreateError(null);
                       }}
-                      placeholder="Ex. Sora, Kael_07 (unique sur DISCRET)"
+                      placeholder="Ex. Sora, Kael_07 (unique sur HOI)"
                       className="w-full glass-input rounded-xl px-3.5 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none"
                     />
                     <p className="mt-2 text-xs text-zinc-500">
@@ -503,7 +503,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                   <button
                     type="submit"
                     disabled={createLoading}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-white py-3 px-4 text-sm font-medium text-zinc-950 transition-all hover:bg-zinc-200 disabled:opacity-50 cursor-pointer"
+                    className="btn-specular w-full flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium disabled:opacity-50 cursor-pointer"
                   >
                     <ShieldCheck className="h-4 w-4" />
                     <span>
@@ -535,10 +535,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                 </p>
               </div>
 
-              <div className="rounded-xl bg-black/50 border border-white/[0.1] p-4">
-                <div className="flex items-center justify-between text-xs text-zinc-500 mb-2">
+              <div className="glass-surface rounded-2xl p-4">
+                <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
                   <span>Identifiant public</span>
-                  <span className="font-mono text-zinc-200">
+                  <span className="font-mono text-zinc-100">
                     {pendingSession?.user.handle}
                   </span>
                 </div>
@@ -551,7 +551,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                 <button
                   type="button"
                   onClick={handleCopyGeneratedKey}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.04] py-2.5 px-3 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                  className="glass-control flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer"
                 >
                   {copiedKey ? (
                     <>
@@ -569,7 +569,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                 <button
                   type="button"
                   onClick={handleDownloadKeyFile}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.04] py-2.5 px-3 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                  className="glass-control flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer"
                 >
                   {downloadedKey ? (
                     <>
@@ -585,7 +585,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                 </button>
               </div>
 
-              <label className="flex items-start gap-3 cursor-pointer select-none rounded-xl border border-white/[0.07] bg-white/[0.02] p-3">
+              <label className="glass-surface flex items-start gap-3 cursor-pointer select-none rounded-2xl p-3.5">
                 <input
                   type="checkbox"
                   checked={confirmedSaved}
@@ -601,7 +601,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                 type="button"
                 disabled={!confirmedSaved && !copiedKey && !downloadedKey}
                 onClick={handleEnterWorkspace}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-white py-3 px-4 text-sm font-medium text-zinc-950 transition-all hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="btn-specular w-full flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <span>Entrer dans la messagerie</span>
                 <ArrowRight className="h-4 w-4" />

@@ -136,12 +136,12 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="friends-modal-title"
     >
-      <div className="glass-elevated w-full max-w-xl rounded-2xl p-6 my-auto">
+      <div className="glass-liquid w-full max-w-xl rounded-3xl p-6 my-auto">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2
@@ -158,14 +158,14 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Fermer"
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
+            className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="grid grid-cols-4 gap-1 rounded-xl bg-white/[0.03] p-1 border border-white/[0.07] mb-4">
+        <div className="grid grid-cols-4 gap-1 rounded-xl bg-black/30 p-1 border border-white/[0.07] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)] mb-4">
           {(
             [
               { key: 'friends', label: `Amis (${snapshot.friends.length})` },
@@ -178,10 +178,10 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
               key={item.key}
               type="button"
               onClick={() => setTab(item.key)}
-              className={`min-h-[36px] rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap truncate cursor-pointer ${
+              className={`min-h-[36px] rounded-lg px-2 py-1.5 text-xs font-medium transition-all whitespace-nowrap truncate cursor-pointer border ${
                 tab === item.key
-                  ? 'bg-white text-zinc-950'
-                  : 'text-zinc-400 hover:text-white'
+                  ? 'glass-control-active text-white'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
               }`}
             >
               {item.label}
@@ -203,7 +203,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setTab('search')}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                    className="btn-specular inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium cursor-pointer"
                   >
                     <UserPlus className="h-3.5 w-3.5" />
                     <span>Rechercher une personne</span>
@@ -216,7 +216,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                   return (
                     <div
                       key={friend.id}
-                      className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-3 space-y-2.5"
+                      className="glass-surface rounded-2xl p-3.5 space-y-2.5"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <button
@@ -255,10 +255,10 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                                 }
                               }}
                               title="Ajouter ou modifier un nom d'ami"
-                              className={`min-h-[36px] flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
+                              className={`min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
                                 isEditingThis
-                                  ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
-                                  : 'border-white/[0.1] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.09]'
+                                  ? 'border border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+                                  : 'glass-control text-zinc-200 hover:text-white'
                               }`}
                             >
                               <Pencil className="h-3.5 w-3.5" />
@@ -269,7 +269,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                             type="button"
                             onClick={() => onViewProfile(friend)}
                             title="Voir le profil"
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                           >
                             <Eye className="h-3.5 w-3.5" />
                             <span>Profil</span>
@@ -281,7 +281,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                               onClose();
                             }}
                             title="Envoyer un message"
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                            className="btn-specular min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-medium cursor-pointer"
                           >
                             <MessageSquare className="h-3.5 w-3.5" />
                             <span>Message</span>
@@ -293,7 +293,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                               exec(friend.id, () => onRemoveFriend(friend.id))
                             }
                             title="Retirer des amis"
-                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer"
                           >
                             <UserMinus className="h-3.5 w-3.5" />
                           </button>
@@ -304,7 +304,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                               exec(friend.id, () => onBlockUser(friend.id))
                             }
                             title="Bloquer cet utilisateur"
-                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl border border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
                           >
                             <Ban className="h-3.5 w-3.5" />
                           </button>
@@ -329,19 +329,19 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                             value={aliasDraft}
                             onChange={(e) => setAliasDraft(e.target.value)}
                             placeholder={`Nom d’ami pour ${friend.displayName} (vide pour retirer)...`}
-                            className="flex-1 min-w-[160px] glass-input rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+                            className="flex-1 min-w-[160px] glass-input rounded-xl px-3 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
                           />
                           <button
                             type="submit"
                             disabled={busyId === friend.id}
-                            className="min-h-[32px] rounded-lg bg-white px-3 py-1 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                            className="btn-specular min-h-[32px] rounded-xl px-3 py-1 text-xs font-medium cursor-pointer"
                           >
                             Enregistrer
                           </button>
                           <button
                             type="button"
                             onClick={() => setEditingAliasId(null)}
-                            className="min-h-[32px] rounded-lg border border-white/[0.1] px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.06] cursor-pointer"
+                            className="glass-control min-h-[32px] rounded-xl px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
                           >
                             Annuler
                           </button>
@@ -362,7 +362,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                   Demandes reçues ({snapshot.incoming.length})
                 </p>
                 {snapshot.incoming.length === 0 ? (
-                  <p className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-4 text-center text-xs text-zinc-500">
+                  <p className="glass-surface rounded-2xl p-4 text-center text-xs text-zinc-500">
                     Aucune demande reçue en attente.
                   </p>
                 ) : (
@@ -370,7 +370,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                     {snapshot.incoming.map((req) => (
                       <div
                         key={req.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3"
+                        className="glass-surface flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl p-3.5"
                       >
                         <button
                           type="button"
@@ -392,7 +392,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => onViewProfile(req.fromUser)}
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                           >
                             <Eye className="h-3.5 w-3.5" />
                             <span>Profil</span>
@@ -405,7 +405,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                                 onAcceptRequest(req.fromUser.id)
                               )
                             }
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-emerald-500/35 bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/30 transition-colors cursor-pointer"
+                            className="min-h-[36px] flex items-center gap-1 rounded-xl border border-emerald-500/35 bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/30 transition-colors cursor-pointer"
                           >
                             <Check className="h-3.5 w-3.5" />
                             <span>Accepter</span>
@@ -418,7 +418,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                                 onDeclineRequest(req.fromUser.id)
                               )
                             }
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                           >
                             <X className="h-3.5 w-3.5" />
                             <span>Refuser</span>
@@ -432,7 +432,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                               )
                             }
                             title="Bloquer"
-                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl border border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
                           >
                             <Ban className="h-3.5 w-3.5" />
                           </button>
@@ -448,7 +448,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                   Demandes envoyées ({snapshot.outgoing.length})
                 </p>
                 {snapshot.outgoing.length === 0 ? (
-                  <p className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-4 text-center text-xs text-zinc-500">
+                  <p className="glass-surface rounded-2xl p-4 text-center text-xs text-zinc-500">
                     Aucune demande envoyée.
                   </p>
                 ) : (
@@ -456,7 +456,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                     {snapshot.outgoing.map((req) => (
                       <div
                         key={req.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3"
+                        className="glass-surface flex items-center justify-between gap-3 rounded-2xl p-3.5"
                       >
                         <button
                           type="button"
@@ -478,7 +478,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => onViewProfile(req.toUser)}
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                           >
                             <Eye className="h-3.5 w-3.5" />
                             <span>Profil</span>
@@ -491,7 +491,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                                 onDeclineRequest(req.toUser.id)
                               )
                             }
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                           >
                             <Clock className="h-3.5 w-3.5 text-zinc-400" />
                             <span>Annuler</span>
@@ -538,7 +538,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                   return (
                     <div
                       key={user.id}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3"
+                      className="glass-surface flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl p-3.5"
                     >
                       <button
                         type="button"
@@ -562,7 +562,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => onViewProfile(user)}
-                          className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                          className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                         >
                           <Eye className="h-3.5 w-3.5" />
                           <span>Profil</span>
@@ -575,7 +575,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                             onClick={() =>
                               exec(user.id, () => onSendRequest(user.id))
                             }
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200 transition-colors cursor-pointer"
+                            className="btn-specular min-h-[36px] flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-medium cursor-pointer"
                           >
                             <UserPlus className="h-3.5 w-3.5" />
                             <span>Ajouter</span>
@@ -589,7 +589,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                               onStartChat(user);
                               onClose();
                             }}
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+                            className="min-h-[36px] flex items-center gap-1 rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer"
                           >
                             <UserCheck className="h-3.5 w-3.5" />
                             <span>Ami · Message</span>
@@ -603,7 +603,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                             onClick={() =>
                               exec(user.id, () => onDeclineRequest(user.id))
                             }
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                           >
                             <Clock className="h-3.5 w-3.5" />
                             <span>Annuler</span>
@@ -617,7 +617,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                             onClick={() =>
                               exec(user.id, () => onAcceptRequest(user.id))
                             }
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-emerald-500/35 bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/30 transition-colors cursor-pointer"
+                            className="min-h-[36px] flex items-center gap-1 rounded-xl border border-emerald-500/35 bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/30 transition-colors cursor-pointer"
                           >
                             <Check className="h-3.5 w-3.5" />
                             <span>Accepter</span>
@@ -631,7 +631,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                             onClick={() =>
                               exec(user.id, () => onUnblockUser(user.id))
                             }
-                            className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.12] bg-white/[0.06] px-2.5 py-1.5 text-xs text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                            className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-white cursor-pointer"
                           >
                             <ShieldOff className="h-3.5 w-3.5" />
                             <span>Débloquer</span>
@@ -647,7 +647,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                                 exec(user.id, () => onBlockUser(user.id))
                               }
                               title="Bloquer"
-                              className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                              className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl border border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
                             >
                               <Ban className="h-3.5 w-3.5" />
                             </button>
@@ -671,7 +671,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                 snapshot.blocked.map((user) => (
                   <div
                     key={user.id}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3"
+                    className="glass-surface flex items-center justify-between gap-3 rounded-2xl p-3.5"
                   >
                     <button
                       type="button"
@@ -693,7 +693,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                       <button
                         type="button"
                         onClick={() => onViewProfile(user)}
-                        className="min-h-[36px] flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.09] transition-colors cursor-pointer"
+                        className="glass-control min-h-[36px] flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 hover:text-white cursor-pointer"
                       >
                         <Eye className="h-3.5 w-3.5" />
                         <span>Profil</span>
@@ -704,7 +704,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                         onClick={() =>
                           exec(user.id, () => onUnblockUser(user.id))
                         }
-                        className="min-h-[36px] flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.07] px-3 py-1.5 text-xs font-medium text-white hover:bg-white/[0.12] transition-colors cursor-pointer"
+                        className="glass-control min-h-[36px] flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-white cursor-pointer"
                       >
                         <ShieldOff className="h-3.5 w-3.5" />
                         <span>Débloquer</span>

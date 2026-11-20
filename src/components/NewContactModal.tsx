@@ -96,12 +96,12 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="new-contact-title"
     >
-      <div className="glass-elevated w-full max-w-md rounded-2xl p-6">
+      <div className="glass-liquid w-full max-w-md rounded-3xl p-6">
         <div className="flex items-center justify-between mb-4">
           <h2
             id="new-contact-title"
@@ -113,13 +113,13 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Fermer"
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
+            className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="mb-5 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3.5 flex items-center justify-between gap-3">
+        <div className="glass-surface mb-5 rounded-2xl p-3.5 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs text-zinc-400">Votre identifiant public</p>
             <p className="mt-0.5 font-mono text-sm text-white truncate">
@@ -129,7 +129,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
           <button
             type="button"
             onClick={handleCopyHandle}
-            className="shrink-0 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-white/[0.1] transition-colors cursor-pointer"
+            className="glass-control shrink-0 flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-zinc-200 hover:text-white cursor-pointer"
           >
             {copiedSelf ? (
               <>
@@ -178,7 +178,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
             results.map((user) => (
               <div
                 key={user.id}
-                className="w-full min-h-[56px] flex items-center justify-between gap-2 rounded-xl border border-transparent bg-white/[0.02] px-3 py-2 hover:border-white/[0.09] hover:bg-white/[0.05] transition-colors"
+                className="w-full min-h-[56px] flex items-center justify-between gap-2 rounded-2xl border border-transparent bg-white/[0.02] px-3 py-2 hover:border-white/[0.1] hover:bg-white/[0.05] transition-colors"
               >
                 <button
                   type="button"
@@ -216,7 +216,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
                       onClick={() => onViewProfile(user)}
                       title="Voir le profil"
                       aria-label={`Voir le profil de ${user.displayName}`}
-                      className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer"
+                      className="glass-control min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer"
                     >
                       <Eye className="h-3.5 w-3.5" />
                     </button>
@@ -226,7 +226,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
                     onClick={() => handleStartChat(user)}
                     title="Démarrer une conversation"
                     aria-label={`Discuter avec ${user.displayName}`}
-                    className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.1] hover:text-white transition-colors cursor-pointer"
+                    className="glass-control min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer"
                   >
                     <UserPlus className="h-3.5 w-3.5" />
                   </button>

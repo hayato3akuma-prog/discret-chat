@@ -77,7 +77,7 @@ function utf8Decode(bytes: ArrayBuffer | Uint8Array): string {
 
 /**
  * Generates a high-entropy unique access key (24 chars from 32-char unambiguous alphabet = 120 bits).
- * Formatted as DISCRET-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
+ * Formatted as HOI-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
  */
 export function generateUniqueAccessKey(): string {
   const randomBytes = new Uint8Array(24);
@@ -87,11 +87,12 @@ export function generateUniqueAccessKey(): string {
     raw += KEY_ALPHABET[randomBytes[i] % KEY_ALPHABET.length];
   }
   const groups = raw.match(/.{1,4}/g) ?? [];
-  return `DISCRET-${groups.join('-')}`;
+  return `HOI-${groups.join('-')}`;
 }
 
 export function normalizeAccessKey(input: string): string {
   const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (cleaned.startsWith('HOI')) return cleaned.slice(3);
   if (cleaned.startsWith('DISCRET')) return cleaned.slice(7);
   if (cleaned.startsWith('VOILE')) return cleaned.slice(5);
   return cleaned;

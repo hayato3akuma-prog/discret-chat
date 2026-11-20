@@ -1092,8 +1092,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       void dispatchPushNotification({
         targetUserIds: [targetUserId],
         title: `Demande d'ami • ${session.user.displayName}`,
-        body: `${session.user.handle} souhaite rejoindre vos contacts DISCRET.`,
-        discreetTitle: 'DISCRET',
+        body: `${session.user.handle} souhaite rejoindre vos contacts HOI.`,
+        discreetTitle: 'HOI',
         discreetBody: 'Nouvelle demande de contact reçue',
         tag: `friend-req-${session.user.id}`,
         data: { url: '/?open=friends', type: 'friend_request', fromUserId: session.user.id },
@@ -1107,7 +1107,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       targetUserIds: [fromUserId],
       title: `Demande acceptée • ${session.user.displayName}`,
       body: `${session.user.displayName} fait maintenant partie de votre liste d'amis.`,
-      discreetTitle: 'DISCRET',
+      discreetTitle: 'HOI',
       discreetBody: 'Une demande de contact a été acceptée',
       tag: `friend-acc-${session.user.id}`,
       data: {
@@ -1324,7 +1324,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             targetUserIds: [peer.id],
             title: `Nouveau message de ${session.user.displayName}`,
             body: 'Message chiffré reçu • Appuyez pour déchiffrer',
-            discreetTitle: 'DISCRET',
+            discreetTitle: 'HOI',
             discreetBody: 'Nouveau message chiffré reçu',
             tag: `dm-msg-${id}`,
             data: {
@@ -1408,7 +1408,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             targetUserIds: recipientIds,
             title: `${group.name} • ${session.user.displayName}`,
             body: 'Nouveau message de groupe chiffré',
-            discreetTitle: 'DISCRET',
+            discreetTitle: 'HOI',
             discreetBody: 'Nouvelle activité de groupe chiffrée',
             tag: `group-msg-${id}`,
             data: {
@@ -1595,14 +1595,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={onOpenPresentation}
-                title="Voir la page de présentation de DISCRET"
+                title="Voir la page de présentation de HOI"
                 className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white hover:text-emerald-300 transition-colors cursor-pointer whitespace-nowrap rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
-                DISCRET
+                HOI
               </button>
             ) : (
               <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wider text-white">
-                DISCRET
+                HOI
               </span>
             )}
             {onOpenPresentation && (
@@ -1615,13 +1615,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               </button>
             )}
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
               title="Personnaliser le profil et l'apparence"
               aria-label="Personnaliser le profil"
-              className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               <SlidersHorizontal className="h-4 w-4" strokeWidth={1.75} />
             </button>
@@ -1630,7 +1630,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               onClick={() => setIsNotificationsModalOpen(true)}
               title="Notifications push en arrière-plan"
               aria-label="Notifications push"
-              className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
+                push.isSubscribed && push.permission === 'granted'
+                  ? 'glass-control border-emerald-400/30 text-emerald-400'
+                  : 'glass-control text-zinc-300 hover:text-white'
+              }`}
             >
               {push.isSubscribed && push.permission === 'granted' ? (
                 <BellRing className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
@@ -1643,7 +1647,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               onClick={handleLockSession}
               title="Verrouiller la session et effacer les clés de la mémoire"
               aria-label="Verrouiller la session"
-              className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
@@ -1663,7 +1667,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               onClick={() => setIsProfileModalOpen(true)}
               className="flex items-end gap-3 min-w-0 flex-1 text-left rounded-xl p-1 -m-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
             >
-              <div className="rounded-full p-0.5 bg-[#09090C] border border-white/15 shrink-0">
+              <div className="rounded-full p-0.5 bg-[#09090C]/90 backdrop-blur-md border border-white/20 shadow-lg shrink-0">
                 <UserAvatar user={session.user} size="sm" />
               </div>
               <div className="min-w-0 flex-1 pb-0.5">
@@ -1680,13 +1684,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               type="button"
               onClick={handleCopyOwnHandle}
               title="Copier votre identifiant public"
-              className="shrink-0 min-h-[32px] flex items-center gap-1.5 rounded-lg bg-white/[0.03] px-2 py-1 font-mono text-[11px] text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer"
+              className="glass-control shrink-0 min-h-[32px] flex items-center gap-1.5 rounded-xl px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:text-white cursor-pointer"
             >
               <span className="max-w-[92px] truncate">{session.user.handle}</span>
               {copiedHandle ? (
                 <Check className="h-3 w-3 text-emerald-400 shrink-0" />
               ) : (
-                <Copy className="h-3 w-3 shrink-0 opacity-60" />
+                <Copy className="h-3 w-3 shrink-0 opacity-65" />
               )}
             </button>
           </div>
@@ -1765,7 +1769,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     ? setIsCreateGroupOpen(true)
                     : setIsContactModalOpen(true)
                 }
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-2 text-xs font-medium text-white hover:bg-white/[0.1] transition-colors cursor-pointer"
+                className="glass-control inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium text-white cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>
@@ -1949,7 +1953,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   type="button"
                   onClick={() => setMobileShowChat(false)}
                   aria-label="Retour aux conversations"
-                  className="md:hidden h-10 w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.06] hover:text-white cursor-pointer shrink-0"
+                  className="md:hidden glass-control h-10 w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer shrink-0"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
@@ -2075,10 +2079,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   }}
                   title="Rechercher dans la conversation"
                   aria-label="Rechercher dans la conversation"
-                  className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
+                  className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl cursor-pointer ${
                     inChatSearchOpen
-                      ? 'bg-white/[0.12] text-white'
-                      : 'text-zinc-400 hover:bg-white/[0.07] hover:text-white'
+                      ? 'glass-control-active text-white'
+                      : 'glass-control text-zinc-300 hover:text-white'
                   }`}
                 >
                   <Search className="h-4 w-4" strokeWidth={1.75} />
@@ -2099,10 +2103,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         : 'Activer la lecture vocale automatique'
                     }
                     aria-pressed={tts.autoRead}
-                    className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
+                    className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl cursor-pointer ${
                       tts.autoRead
-                        ? 'bg-emerald-500/15 text-emerald-300'
-                        : 'text-zinc-400 hover:bg-white/[0.07] hover:text-white'
+                        ? 'glass-control-active border-emerald-400/35 text-emerald-300'
+                        : 'glass-control text-zinc-300 hover:text-white'
                     }`}
                   >
                     {tts.autoRead ? (
@@ -2114,7 +2118,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 )}
 
                 {activePeer ? (
-                  <div className="flex items-center gap-0.5 sm:gap-1">
+                  <div className="flex items-center gap-1 sm:gap-1.5">
                     {!isSelfSelected &&
                       getRelationship(activePeer.id) !== 'blocked_by_me' &&
                       getRelationship(activePeer.id) !== 'blocked_by_peer' && (
@@ -2125,7 +2129,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             disabled={call.phase !== 'idle'}
                             title="Appel audio en temps réel"
                             aria-label="Appel audio en temps réel"
-                            className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                            className="glass-control h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white disabled:opacity-40 cursor-pointer"
                           >
                             <Phone className="h-4 w-4" strokeWidth={1.75} />
                           </button>
@@ -2135,7 +2139,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             disabled={call.phase !== 'idle'}
                             title="Appel vidéo en temps réel"
                             aria-label="Appel vidéo en temps réel"
-                            className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                            className="glass-control h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white disabled:opacity-40 cursor-pointer"
                           >
                             <Video className="h-4 w-4" strokeWidth={1.75} />
                           </button>
@@ -2146,23 +2150,23 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       onClick={() => setIsSecurityModalOpen(true)}
                       title="Vérifier le chiffrement E2EE"
                       aria-label="Vérifier le chiffrement E2EE"
-                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer ml-0.5"
+                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer"
                     >
                       <ShieldCheck className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
                       <span className="hidden sm:inline">Vérifier E2EE</span>
                     </button>
                   </div>
                 ) : activeGroup ? (
-                  <div className="flex items-center gap-0.5 sm:gap-1">
+                  <div className="flex items-center gap-1 sm:gap-1.5">
                     <button
                       type="button"
                       onClick={() => setInspectorMode((v) => !v)}
                       title="Inspecter les paquets chiffrés"
                       aria-label="Inspecter les paquets chiffrés"
-                      className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
+                      className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl cursor-pointer ${
                         inspectorMode
-                          ? 'bg-emerald-500/15 text-emerald-300'
-                          : 'text-zinc-400 hover:bg-white/[0.08] hover:text-white'
+                          ? 'glass-control-active border-emerald-400/35 text-emerald-300'
+                          : 'glass-control text-zinc-300 hover:text-white'
                       }`}
                     >
                       <Eye className="h-4 w-4" strokeWidth={1.75} />
@@ -2170,7 +2174,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsGroupInfoOpen(true)}
-                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer ml-0.5"
+                      className="glass-control h-9 w-9 sm:h-10 sm:w-auto flex items-center justify-center gap-1.5 rounded-xl sm:px-3 text-xs font-medium text-zinc-200 hover:text-white whitespace-nowrap cursor-pointer"
                     >
                       <Users className="h-4 w-4 text-zinc-200" strokeWidth={1.75} />
                       <span className="hidden sm:inline">Membres</span>
@@ -2201,7 +2205,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     onClick={tts.cycleRate}
                     title="Changer la vitesse de lecture vocale"
                     aria-label={`Vitesse de lecture ${tts.rate}x`}
-                    className="rounded-lg border border-white/[0.1] bg-white/[0.05] px-2.5 py-1 font-mono text-[11px] font-medium text-zinc-200 hover:bg-white/[0.1] transition-colors tabular-nums cursor-pointer"
+                    className="glass-control rounded-lg px-2.5 py-1 font-mono text-[11px] font-medium text-zinc-200 hover:text-white tabular-nums cursor-pointer"
                   >
                     {tts.rate}×
                   </button>
@@ -2296,7 +2300,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         scrollToMessage(searchMatches[prevIdx]);
                       }}
                       aria-label="Résultat précédent"
-                      className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:text-white cursor-pointer"
+                      className="glass-control h-7 w-7 flex items-center justify-center rounded-lg text-zinc-300 hover:text-white cursor-pointer"
                     >
                       <ChevronUp className="h-3.5 w-3.5" />
                     </button>
@@ -2309,7 +2313,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         scrollToMessage(searchMatches[nextIdx]);
                       }}
                       aria-label="Résultat suivant"
-                      className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:text-white cursor-pointer"
+                      className="glass-control h-7 w-7 flex items-center justify-center rounded-lg text-zinc-300 hover:text-white cursor-pointer"
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
                     </button>
@@ -2322,7 +2326,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     setInChatSearchQuery('');
                   }}
                   aria-label="Fermer la recherche"
-                  className="h-7 w-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white cursor-pointer"
+                  className="glass-control h-7 w-7 flex items-center justify-center rounded-lg text-zinc-300 hover:text-white cursor-pointer"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -2697,7 +2701,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
                 {(isPeerTyping || activeGroupTypingUser) && (
                   <div className="mt-3 flex items-start">
-                    <div className="inline-flex items-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-2.5 text-xs text-zinc-400">
+                    <div className="glass-surface inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs text-zinc-300">
                       <span>
                         {activePeer
                           ? `${getContactDisplayName(activePeer, friendAliases)} écrit`
@@ -2764,7 +2768,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     <button
                       type="button"
                       onClick={() => handleUnblockUser(activePeer.id)}
-                      className="flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.08] px-3 py-1.5 text-xs font-medium text-white hover:bg-white/[0.15] transition-colors shrink-0 cursor-pointer"
+                      className="glass-control flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-white shrink-0 cursor-pointer"
                     >
                       <ShieldOff className="h-3.5 w-3.5" />
                       <span>Débloquer</span>
@@ -2774,7 +2778,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               ) : (
                 <>
                   {replyingTo && (
-                    <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3.5 py-2 text-xs">
+                    <div className="glass-surface mb-2 flex items-center justify-between gap-3 rounded-2xl px-3.5 py-2 text-xs">
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-emerald-300 truncate">
                           Réponse à{' '}
@@ -2797,7 +2801,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         type="button"
                         onClick={() => setReplyingTo(null)}
                         aria-label="Annuler la réponse"
-                        className="p-1 text-zinc-400 hover:text-white cursor-pointer"
+                        className="glass-control h-7 w-7 flex items-center justify-center rounded-lg text-zinc-300 hover:text-white cursor-pointer shrink-0"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -2805,12 +2809,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   )}
 
                   {pendingAttachment && (
-                    <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2">
+                    <div className="glass-surface mb-2 flex items-center justify-between gap-3 rounded-2xl px-3 py-2">
                       <div className="flex items-center gap-3 min-w-0">
                         <img
                           src={pendingAttachment.dataUrl}
                           alt={pendingAttachment.name || 'Aperçu du média'}
-                          className="h-12 w-12 rounded-lg object-cover border border-white/[0.1] shrink-0 bg-black/40"
+                          className="h-12 w-12 rounded-xl object-cover border border-white/[0.12] shrink-0 bg-black/40"
                         />
                         <div className="min-w-0">
                           <p className="text-xs font-medium text-white truncate">
@@ -2829,7 +2833,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         type="button"
                         onClick={() => setPendingAttachment(null)}
                         aria-label="Retirer le média"
-                        className="h-8 w-8 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer shrink-0"
+                        className="glass-control h-8 w-8 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer shrink-0"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -2943,7 +2947,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsContactModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2.5 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all cursor-pointer"
+                  className="btn-specular inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-medium cursor-pointer"
                 >
                   <Plus className="h-4 w-4" />
                   <span>Contact</span>
