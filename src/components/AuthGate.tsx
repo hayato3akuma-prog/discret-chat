@@ -33,6 +33,7 @@ import {
 } from '../lib/firestoreStore';
 import type { PublicUser, UnlockedSession } from '../types';
 import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
+import { ThemeBackdrop } from './ThemeBackdrop';
 import { ThemeSwitcherButton } from './ThemePicker';
 
 interface AuthGateProps {
@@ -293,14 +294,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   return (
     <div className="app-canvas relative min-h-screen w-full overflow-hidden flex flex-col justify-between px-4 py-8 sm:px-8">
       {/* Multi-layered themed liquid ambient field */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed inset-0 overflow-hidden"
-      >
-        <div className="liquid-orb-a ambient-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[540px] w-[780px] rounded-full blur-[140px]" />
-        <div className="liquid-orb-b ambient-orb-b absolute -bottom-52 right-1/4 h-[440px] w-[540px] rounded-full blur-[140px]" />
-        <div className="liquid-orb-c ambient-orb-c absolute top-1/3 left-1/5 h-[360px] w-[420px] rounded-full blur-[140px]" />
-      </div>
+      <ThemeBackdrop />
 
       {/* Minimal top wordmark */}
       <header className="relative z-10 mx-auto w-full max-w-5xl flex items-center justify-between gap-4">

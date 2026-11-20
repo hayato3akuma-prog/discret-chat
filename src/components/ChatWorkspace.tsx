@@ -100,6 +100,7 @@ import { PeerProfileModal } from './PeerProfileModal';
 import { ProfileBanner } from './ProfileBanner';
 import { ProfileModal } from './ProfileModal';
 import { SecurityModal } from './SecurityModal';
+import { ThemeBackdrop } from './ThemeBackdrop';
 import { ThemeSwitcherButton } from './ThemePicker';
 import { UserAvatar } from './UserAvatar';
 
@@ -1576,12 +1577,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       className="app-canvas relative h-dvh w-full overflow-hidden flex"
     >
       {/* Multi-layered themed liquid ambient field for genuine glass refraction */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="liquid-orb-a ambient-orb-a absolute -top-44 left-[12%] h-[520px] w-[680px] rounded-full blur-[140px]" />
-        <div className="liquid-orb-b ambient-orb-b absolute top-[28%] right-[8%] h-[440px] w-[520px] rounded-full blur-[150px]" />
-        <div className="liquid-orb-c ambient-orb-c absolute -bottom-44 left-[28%] h-[420px] w-[560px] rounded-full blur-[150px]" />
-        <div className="ambient-sheen absolute inset-0" />
-      </div>
+      <ThemeBackdrop showTopSheen />
 
       {/* Left Sidebar: Floating Liquid Glass Panel on Desktop */}
       <aside

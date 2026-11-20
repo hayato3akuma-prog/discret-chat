@@ -19,6 +19,7 @@ import {
 import { getBubbleClassNames } from '../lib/bubbleTheme';
 import type { BubbleStyleKey } from '../types';
 import { AppInstallModal } from './AppInstallModal';
+import { ThemeBackdrop } from './ThemeBackdrop';
 import { ThemeSwitcherButton } from './ThemePicker';
 
 interface LandingPageProps {
@@ -180,11 +181,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       className="app-canvas relative min-h-screen w-full overflow-x-hidden flex flex-col"
     >
       {/* Multi-layered themed liquid ambient field */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="liquid-orb-a ambient-orb-a absolute -top-52 left-[14%] h-[580px] w-[760px] rounded-full blur-[150px]" />
-        <div className="liquid-orb-b ambient-orb-b absolute top-[34%] right-[8%] h-[500px] w-[600px] rounded-full blur-[150px]" />
-        <div className="liquid-orb-c ambient-orb-c absolute bottom-[-180px] left-[28%] h-[460px] w-[580px] rounded-full blur-[150px]" />
-      </div>
+      <ThemeBackdrop />
 
       {/* Top Bar Contract: exactly 3 zones (Brand — 4 Nav Links — 1 Primary Action) */}
       <header className="glass-liquid sticky top-0 z-30 border-x-0 border-t-0">

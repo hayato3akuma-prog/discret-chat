@@ -5,6 +5,7 @@ export interface AppThemeDefinition {
   key: AppThemeKey;
   label: string;
   description: string;
+  animated?: boolean;
   canvasColor: string;
   previewBg: string;
   previewOrbA: string;
@@ -86,6 +87,58 @@ export const APP_THEMES: AppThemeDefinition[] = [
     previewBorder: 'rgba(226, 232, 240, 0.28)',
     previewButton: '#f8fafc',
     accentSwatch: 'bg-slate-300',
+  },
+  {
+    key: 'borealis',
+    label: 'Boréale',
+    description: 'Voiles polaires ondulants en direct',
+    animated: true,
+    canvasColor: '#03080a',
+    previewBg: '#041115',
+    previewOrbA: '#34d399',
+    previewOrbB: '#22d3ee',
+    previewBorder: 'rgba(94, 234, 212, 0.34)',
+    previewButton: '#ccfbf1',
+    accentSwatch: 'bg-teal-300',
+  },
+  {
+    key: 'prism',
+    label: 'Prisme',
+    description: 'Caustiques irisées en orbite fluide',
+    animated: true,
+    canvasColor: '#07060d',
+    previewBg: '#0e0c1c',
+    previewOrbA: '#a78bfa',
+    previewOrbB: '#38bdf8',
+    previewBorder: 'rgba(196, 181, 253, 0.34)',
+    previewButton: '#ede9fe',
+    accentSwatch: 'bg-violet-300',
+  },
+  {
+    key: 'nebula',
+    label: 'Nébuleuse',
+    description: 'Étoiles scintillantes & brume cosmique',
+    animated: true,
+    canvasColor: '#05040b',
+    previewBg: '#090718',
+    previewOrbA: '#818cf8',
+    previewOrbB: '#f472b6',
+    previewBorder: 'rgba(165, 180, 252, 0.32)',
+    previewButton: '#e0e7ff',
+    accentSwatch: 'bg-indigo-300',
+  },
+  {
+    key: 'ember',
+    label: 'Braise',
+    description: 'Luciole dorée & braises ascendantes',
+    animated: true,
+    canvasColor: '#090503',
+    previewBg: '#150b05',
+    previewOrbA: '#f59e0b',
+    previewOrbB: '#fb7185',
+    previewBorder: 'rgba(253, 186, 116, 0.32)',
+    previewButton: '#fef3c7',
+    accentSwatch: 'bg-orange-400',
   },
 ];
 

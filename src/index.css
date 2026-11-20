@@ -177,6 +177,114 @@
   --theme-scrollbar-hover: rgba(226, 232, 240, 0.32);
 }
 
+[data-app-theme='borealis'] {
+  --theme-bg: #03080a;
+  --theme-tint-rgb: 94, 234, 212;
+  --theme-liquid-mid: rgba(6, 23, 25, 0.66);
+  --theme-liquid-end: rgba(3, 13, 16, 0.82);
+  --theme-elevated-start: rgba(11, 36, 39, calc(var(--glass-elevated-alpha) + 0.08));
+  --theme-elevated-mid: rgba(6, 21, 24, var(--glass-elevated-alpha));
+  --theme-elevated-end: rgba(3, 12, 15, calc(var(--glass-elevated-alpha) + 0.1));
+  --theme-border-rgb: 153, 246, 228;
+  --theme-specular-rgb: 204, 251, 241;
+
+  --theme-orb-a: rgba(52, 211, 153, 0.14);
+  --theme-orb-b: rgba(34, 211, 238, 0.125);
+  --theme-orb-c: rgba(16, 185, 129, 0.09);
+  --theme-sheen: rgba(94, 234, 212, 0.055);
+
+  --theme-btn-from: #f0fdfa;
+  --theme-btn-to: #99f6e4;
+  --theme-btn-text: #042f2e;
+  --theme-btn-specular: #ffffff;
+  --theme-btn-glow: rgba(45, 212, 191, 0.38);
+
+  --theme-selection: rgba(45, 212, 191, 0.28);
+  --theme-scrollbar: rgba(153, 246, 228, 0.2);
+  --theme-scrollbar-hover: rgba(153, 246, 228, 0.36);
+}
+
+[data-app-theme='prism'] {
+  --theme-bg: #07060d;
+  --theme-tint-rgb: 196, 181, 253;
+  --theme-liquid-mid: rgba(18, 16, 36, 0.65);
+  --theme-liquid-end: rgba(10, 9, 22, 0.82);
+  --theme-elevated-start: rgba(28, 25, 54, calc(var(--glass-elevated-alpha) + 0.08));
+  --theme-elevated-mid: rgba(16, 14, 34, var(--glass-elevated-alpha));
+  --theme-elevated-end: rgba(9, 8, 20, calc(var(--glass-elevated-alpha) + 0.1));
+  --theme-border-rgb: 221, 214, 254;
+  --theme-specular-rgb: 245, 243, 255;
+
+  --theme-orb-a: rgba(167, 139, 250, 0.14);
+  --theme-orb-b: rgba(56, 189, 248, 0.12);
+  --theme-orb-c: rgba(244, 114, 182, 0.08);
+  --theme-sheen: rgba(196, 181, 253, 0.055);
+
+  --theme-btn-from: #f5f3ff;
+  --theme-btn-to: #ddd6fe;
+  --theme-btn-text: #1e1b4b;
+  --theme-btn-specular: #ffffff;
+  --theme-btn-glow: rgba(167, 139, 250, 0.38);
+
+  --theme-selection: rgba(167, 139, 250, 0.28);
+  --theme-scrollbar: rgba(221, 214, 254, 0.2);
+  --theme-scrollbar-hover: rgba(221, 214, 254, 0.36);
+}
+
+[data-app-theme='nebula'] {
+  --theme-bg: #05040b;
+  --theme-tint-rgb: 165, 180, 252;
+  --theme-liquid-mid: rgba(14, 12, 32, 0.66);
+  --theme-liquid-end: rgba(7, 6, 19, 0.83);
+  --theme-elevated-start: rgba(23, 20, 49, calc(var(--glass-elevated-alpha) + 0.08));
+  --theme-elevated-mid: rgba(13, 11, 30, var(--glass-elevated-alpha));
+  --theme-elevated-end: rgba(7, 6, 18, calc(var(--glass-elevated-alpha) + 0.1));
+  --theme-border-rgb: 199, 210, 254;
+  --theme-specular-rgb: 238, 242, 255;
+
+  --theme-orb-a: rgba(129, 140, 248, 0.145);
+  --theme-orb-b: rgba(244, 114, 182, 0.105);
+  --theme-orb-c: rgba(56, 189, 248, 0.085);
+  --theme-sheen: rgba(165, 180, 252, 0.05);
+
+  --theme-btn-from: #eef2ff;
+  --theme-btn-to: #c7d2fe;
+  --theme-btn-text: #1e1b4b;
+  --theme-btn-specular: #ffffff;
+  --theme-btn-glow: rgba(129, 140, 248, 0.38);
+
+  --theme-selection: rgba(129, 140, 248, 0.28);
+  --theme-scrollbar: rgba(199, 210, 254, 0.2);
+  --theme-scrollbar-hover: rgba(199, 210, 254, 0.36);
+}
+
+[data-app-theme='ember'] {
+  --theme-bg: #090503;
+  --theme-tint-rgb: 253, 186, 116;
+  --theme-liquid-mid: rgba(30, 16, 10, 0.67);
+  --theme-liquid-end: rgba(17, 9, 5, 0.84);
+  --theme-elevated-start: rgba(44, 24, 14, calc(var(--glass-elevated-alpha) + 0.08));
+  --theme-elevated-mid: rgba(27, 14, 8, var(--glass-elevated-alpha));
+  --theme-elevated-end: rgba(15, 8, 4, calc(var(--glass-elevated-alpha) + 0.1));
+  --theme-border-rgb: 254, 215, 170;
+  --theme-specular-rgb: 255, 237, 213;
+
+  --theme-orb-a: rgba(245, 158, 11, 0.15);
+  --theme-orb-b: rgba(251, 113, 133, 0.11);
+  --theme-orb-c: rgba(251, 191, 36, 0.085);
+  --theme-sheen: rgba(253, 186, 116, 0.055);
+
+  --theme-btn-from: #fffbeb;
+  --theme-btn-to: #fed7aa;
+  --theme-btn-text: #431407;
+  --theme-btn-specular: #ffffff;
+  --theme-btn-glow: rgba(245, 158, 11, 0.38);
+
+  --theme-selection: rgba(251, 146, 60, 0.26);
+  --theme-scrollbar: rgba(254, 215, 170, 0.2);
+  --theme-scrollbar-hover: rgba(254, 215, 170, 0.36);
+}
+
 [data-glass-intensity='subtle'] {
   --glass-blur: 16px;
   --glass-blur-elevated: 24px;
@@ -670,6 +778,222 @@
 
 .typing-dot-3 {
   animation: discret-typing-dot 1.2s ease-in-out 0.32s infinite;
+}
+
+/* Special Animated Themes */
+@keyframes theme-aurora-wave-a {
+  0%, 100% {
+    transform: translate3d(-6%, -4%, 0) rotate(-8deg) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(7%, 5%, 0) rotate(5deg) scale(1.09);
+    opacity: 0.85;
+  }
+}
+
+@keyframes theme-aurora-wave-b {
+  0%, 100% {
+    transform: translate3d(5%, 4%, 0) rotate(10deg) scale(1.05);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate3d(-7%, -5%, 0) rotate(-6deg) scale(0.96);
+    opacity: 0.78;
+  }
+}
+
+.theme-aurora-curtain-1 {
+  background: linear-gradient(
+    115deg,
+    transparent 15%,
+    rgba(52, 211, 153, 0.2) 38%,
+    rgba(34, 211, 238, 0.22) 55%,
+    rgba(16, 185, 129, 0.12) 72%,
+    transparent 88%
+  );
+  animation: theme-aurora-wave-a 16s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.theme-aurora-curtain-2 {
+  background: linear-gradient(
+    -125deg,
+    transparent 12%,
+    rgba(45, 212, 191, 0.18) 36%,
+    rgba(56, 189, 248, 0.18) 58%,
+    transparent 84%
+  );
+  animation: theme-aurora-wave-b 21s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes theme-prism-orbit {
+  0% {
+    transform: translate3d(-50%, -50%, 0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate3d(-48%, -52%, 0) rotate(180deg) scale(1.06);
+  }
+  100% {
+    transform: translate3d(-50%, -50%, 0) rotate(360deg) scale(1);
+  }
+}
+
+@keyframes theme-prism-sweep {
+  0%, 100% {
+    transform: translate3d(-12%, -6%, 0) rotate(-14deg);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate3d(14%, 6%, 0) rotate(10deg);
+    opacity: 0.78;
+  }
+}
+
+.theme-prism-ring {
+  background: conic-gradient(
+    from 0deg,
+    rgba(167, 139, 250, 0.22),
+    rgba(56, 189, 248, 0.22),
+    rgba(244, 114, 182, 0.18),
+    rgba(94, 234, 212, 0.18),
+    rgba(167, 139, 250, 0.22)
+  );
+  animation: theme-prism-orbit 26s linear infinite;
+  will-change: transform;
+}
+
+.theme-prism-beam {
+  background: linear-gradient(
+    110deg,
+    transparent 20%,
+    rgba(221, 214, 254, 0.12) 45%,
+    rgba(125, 211, 252, 0.14) 55%,
+    transparent 80%
+  );
+  animation: theme-prism-sweep 14s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes theme-nebula-twinkle-a {
+  0%, 100% {
+    opacity: 0.45;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translate3d(-10px, -12px, 0) scale(1.02);
+  }
+}
+
+@keyframes theme-nebula-twinkle-b {
+  0%, 100% {
+    opacity: 0.75;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.3;
+    transform: translate3d(12px, -8px, 0);
+  }
+}
+
+.theme-nebula-stars-a {
+  background-image:
+    radial-gradient(1.3px 1.3px at 14% 22%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1.5px 1.5px at 28% 68%, rgba(199, 210, 254, 0.85), transparent),
+    radial-gradient(1.2px 1.2px at 44% 16%, rgba(255, 255, 255, 0.75), transparent),
+    radial-gradient(1.6px 1.6px at 61% 42%, rgba(244, 114, 182, 0.8), transparent),
+    radial-gradient(1.3px 1.3px at 76% 19%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1.4px 1.4px at 88% 72%, rgba(165, 180, 252, 0.85), transparent),
+    radial-gradient(1.2px 1.2px at 21% 84%, rgba(255, 255, 255, 0.75), transparent),
+    radial-gradient(1.5px 1.5px at 53% 81%, rgba(125, 211, 252, 0.8), transparent),
+    radial-gradient(1.2px 1.2px at 92% 31%, rgba(255, 255, 255, 0.8), transparent);
+  animation: theme-nebula-twinkle-a 9s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.theme-nebula-stars-b {
+  background-image:
+    radial-gradient(1.2px 1.2px at 8% 48%, rgba(224, 231, 255, 0.8), transparent),
+    radial-gradient(1.5px 1.5px at 35% 33%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1.3px 1.3px at 49% 57%, rgba(196, 181, 253, 0.8), transparent),
+    radial-gradient(1.4px 1.4px at 67% 26%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1.2px 1.2px at 79% 63%, rgba(244, 114, 182, 0.75), transparent),
+    radial-gradient(1.6px 1.6px at 17% 12%, rgba(165, 180, 252, 0.85), transparent),
+    radial-gradient(1.2px 1.2px at 71% 88%, rgba(255, 255, 255, 0.75), transparent),
+    radial-gradient(1.3px 1.3px at 94% 55%, rgba(224, 231, 255, 0.8), transparent);
+  animation: theme-nebula-twinkle-b 13s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes theme-ember-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.75);
+  }
+  20% {
+    opacity: 0.85;
+  }
+  80% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-16px, -110px, 0) scale(1.1);
+  }
+}
+
+@keyframes theme-ember-glow {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.07);
+  }
+}
+
+.theme-ember-mote {
+  animation: theme-ember-rise var(--ember-dur, 10s) ease-in-out var(--ember-delay, 0s) infinite;
+  will-change: transform, opacity;
+}
+
+.theme-ember-glow {
+  background: radial-gradient(
+    circle at 50% 100%,
+    rgba(245, 158, 11, 0.22) 0%,
+    rgba(251, 113, 133, 0.1) 40%,
+    transparent 74%
+  );
+  animation: theme-ember-glow 10s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.preview-anim-borealis {
+  background: linear-gradient(120deg, transparent, rgba(52, 211, 153, 0.45), rgba(34, 211, 238, 0.42), transparent);
+  animation: theme-aurora-wave-a 6s ease-in-out infinite;
+}
+
+.preview-anim-prism {
+  background: conic-gradient(from 0deg, rgba(167, 139, 250, 0.48), rgba(56, 189, 248, 0.45), rgba(244, 114, 182, 0.4), rgba(167, 139, 250, 0.48));
+  animation: theme-prism-orbit 8s linear infinite;
+}
+
+.preview-anim-nebula {
+  background-image:
+    radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 55% 22%, #c7d2fe, transparent),
+    radial-gradient(1.5px 1.5px at 78% 45%, #f472b6, transparent),
+    radial-gradient(1.5px 1.5px at 38% 68%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 84% 76%, #a5b4fc, transparent);
+  animation: theme-nebula-twinkle-a 4s ease-in-out infinite;
+}
+
+.preview-anim-ember {
+  background: radial-gradient(circle at 50% 95%, rgba(245, 158, 11, 0.52), rgba(251, 113, 133, 0.25), transparent 72%);
+  animation: theme-ember-glow 4.5s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

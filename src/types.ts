@@ -20,7 +20,11 @@ export type AppThemeKey =
   | 'abyssal'
   | 'amber'
   | 'velvet'
-  | 'graphite';
+  | 'graphite'
+  | 'borealis'
+  | 'prism'
+  | 'nebula'
+  | 'ember';
 
 export type GlassIntensity = 'subtle' | 'balanced' | 'deep';
 
