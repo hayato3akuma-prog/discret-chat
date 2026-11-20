@@ -100,6 +100,7 @@ import { PeerProfileModal } from './PeerProfileModal';
 import { ProfileBanner } from './ProfileBanner';
 import { ProfileModal } from './ProfileModal';
 import { SecurityModal } from './SecurityModal';
+import { ThemeSwitcherButton } from './ThemePicker';
 import { UserAvatar } from './UserAvatar';
 
 interface ChatWorkspaceProps {
@@ -1572,14 +1573,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   return (
     <div
       data-glass-intensity={glassIntensity}
-      className="relative h-dvh w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex"
+      className="app-canvas relative h-dvh w-full overflow-hidden flex"
     >
-      {/* Multi-layered obsidian liquid ambient field for genuine glass refraction */}
+      {/* Multi-layered themed liquid ambient field for genuine glass refraction */}
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="liquid-orb-a absolute -top-44 left-[12%] h-[520px] w-[680px] rounded-full bg-sky-200/[0.045] blur-[140px]" />
-        <div className="liquid-orb-b absolute top-[28%] right-[8%] h-[440px] w-[520px] rounded-full bg-indigo-300/[0.04] blur-[150px]" />
-        <div className="absolute -bottom-44 left-[28%] h-[420px] w-[560px] rounded-full bg-emerald-400/[0.035] blur-[150px]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.03),transparent_60%)]" />
+        <div className="liquid-orb-a ambient-orb-a absolute -top-44 left-[12%] h-[520px] w-[680px] rounded-full blur-[140px]" />
+        <div className="liquid-orb-b ambient-orb-b absolute top-[28%] right-[8%] h-[440px] w-[520px] rounded-full blur-[150px]" />
+        <div className="ambient-orb-c absolute -bottom-44 left-[28%] h-[420px] w-[560px] rounded-full blur-[150px]" />
+        <div className="ambient-sheen absolute inset-0" />
       </div>
 
       {/* Left Sidebar: Floating Liquid Glass Panel on Desktop */}
@@ -1642,6 +1643,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 <Bell className="h-4 w-4" strokeWidth={1.75} />
               )}
             </button>
+            <ThemeSwitcherButton variant="icon" align="right" direction="down" />
             <button
               type="button"
               onClick={handleLockSession}

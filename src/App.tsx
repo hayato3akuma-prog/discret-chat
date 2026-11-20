@@ -5,6 +5,7 @@ import { ChatWorkspace } from './components/ChatWorkspace';
 import { LandingPage } from './components/LandingPage';
 import { OfflineBanner } from './components/OfflineBanner';
 import { importKeysFromJwks } from './lib/crypto';
+import { useAppTheme } from './lib/appTheme';
 import { auth } from './lib/firebase';
 import { refreshPublicProfile } from './lib/firestoreStore';
 import {
@@ -15,6 +16,7 @@ import {
 import type { PublicUser, UnlockedSession } from './types';
 
 export default function App() {
+  useAppTheme();
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [session, setSession] = useState<UnlockedSession | null>(null);
@@ -194,7 +196,7 @@ export default function App() {
 
   if (!authReady || restoring) {
     return (
-      <div className="h-dvh w-full bg-[#050507] flex items-center justify-center text-xs text-zinc-500">
+      <div className="app-canvas h-dvh w-full flex items-center justify-center text-xs text-zinc-500">
         Initialisation du coffre chiffré HOI...
       </div>
     );

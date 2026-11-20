@@ -3,7 +3,10 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
+import { applyAppTheme, getSavedAppTheme } from './lib/appTheme';
 import { ensureServiceWorkerRegistration } from './lib/pushNotifications';
+
+applyAppTheme(getSavedAppTheme());
 
 if (import.meta.env.PROD) {
   registerSW({ immediate: true });

@@ -19,6 +19,7 @@ import {
 import { getBubbleClassNames } from '../lib/bubbleTheme';
 import type { BubbleStyleKey } from '../types';
 import { AppInstallModal } from './AppInstallModal';
+import { ThemeSwitcherButton } from './ThemePicker';
 
 interface LandingPageProps {
   isAuthenticated: boolean;
@@ -176,17 +177,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div
       id="top"
-      className="relative min-h-screen w-full overflow-x-hidden bg-[#050507] text-[#F4F4F5] flex flex-col"
+      className="app-canvas relative min-h-screen w-full overflow-x-hidden flex flex-col"
     >
-      {/* Multi-layered obsidian liquid ambient field */}
+      {/* Multi-layered themed liquid ambient field */}
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="liquid-orb-a absolute -top-52 left-[14%] h-[580px] w-[760px] rounded-full bg-sky-200/[0.05] blur-[150px]" />
-        <div className="liquid-orb-b absolute top-[34%] right-[8%] h-[500px] w-[600px] rounded-full bg-emerald-400/[0.04] blur-[150px]" />
-        <div className="absolute bottom-[-180px] left-[28%] h-[460px] w-[580px] rounded-full bg-indigo-300/[0.035] blur-[150px]" />
+        <div className="liquid-orb-a ambient-orb-a absolute -top-52 left-[14%] h-[580px] w-[760px] rounded-full blur-[150px]" />
+        <div className="liquid-orb-b ambient-orb-b absolute top-[34%] right-[8%] h-[500px] w-[600px] rounded-full blur-[150px]" />
+        <div className="ambient-orb-c absolute bottom-[-180px] left-[28%] h-[460px] w-[580px] rounded-full blur-[150px]" />
       </div>
 
       {/* Top Bar Contract: exactly 3 zones (Brand — 4 Nav Links — 1 Primary Action) */}
-      <header className="sticky top-0 z-30 border-b border-white/[0.1] bg-[#07070c]/75 backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.04)]">
+      <header className="glass-liquid sticky top-0 z-30 border-x-0 border-t-0">
         <div className="mx-auto max-w-[1200px] h-16 px-4 sm:px-8 flex items-center justify-between gap-8">
           <a
             href="#top"
@@ -230,7 +231,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={onReturnToWorkspace}
-                className="min-h-[40px] rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                className="btn-specular min-h-[40px] rounded-xl px-4 py-2 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 Retour à la messagerie
               </button>
@@ -238,7 +239,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenAuth('login')}
-                className="min-h-[40px] rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                className="btn-specular min-h-[40px] rounded-xl px-4 py-2 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 Accéder au coffre
               </button>
@@ -275,7 +276,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <button
                   type="button"
                   onClick={handlePrimaryCta}
-                  className="min-h-[44px] inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-6 py-3 text-sm font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff,0_10px_28px_-8px_rgba(255,255,255,0.28)] hover:brightness-95 active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer"
+                  className="btn-specular min-h-[44px] inline-flex items-center gap-2.5 rounded-xl px-6 py-3 text-sm font-medium whitespace-nowrap cursor-pointer"
                 >
                   <span>
                     {isAuthenticated ? 'Ouvrir ma messagerie' : 'Créer ma clé unique'}
@@ -840,7 +841,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <button
                   type="button"
                   onClick={handlePrimaryCta}
-                  className="min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-5 py-3 text-sm font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer"
+                  className="btn-specular min-h-[44px] inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-medium whitespace-nowrap cursor-pointer"
                 >
                   <span>
                     {isAuthenticated ? 'Retour à la messagerie' : 'Créer ma clé unique'}
@@ -873,7 +874,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span>Web Crypto API · WebRTC DTLS-SRTP · Web Speech API</span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-5">
+          <div className="flex flex-wrap items-center gap-4">
+            <ThemeSwitcherButton variant="labeled" align="right" direction="up" />
             <button
               type="button"
               onClick={() => setInstallModalOpen(true)}

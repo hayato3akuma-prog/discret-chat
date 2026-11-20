@@ -38,10 +38,10 @@ export class ErrorBoundary extends React.Component<
     }
 
     return (
-      <div className="relative min-h-screen w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex items-center justify-center p-4">
+      <div className="app-canvas relative min-h-screen w-full overflow-hidden flex items-center justify-center p-4">
         <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-          <div className="liquid-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[500px] w-[700px] rounded-full bg-sky-200/[0.045] blur-[140px]" />
-          <div className="liquid-orb-b absolute -bottom-44 right-1/4 h-[400px] w-[500px] rounded-full bg-emerald-400/[0.035] blur-[140px]" />
+          <div className="liquid-orb-a ambient-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[500px] w-[700px] rounded-full blur-[140px]" />
+          <div className="liquid-orb-b ambient-orb-b absolute -bottom-44 right-1/4 h-[400px] w-[500px] rounded-full blur-[140px]" />
         </div>
         <div className="glass-liquid relative z-10 w-full max-w-md rounded-3xl p-7 text-center space-y-4">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-400">

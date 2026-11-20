@@ -33,6 +33,7 @@ import {
 } from '../lib/firestoreStore';
 import type { PublicUser, UnlockedSession } from '../types';
 import { AppInstallModal, PWAInstallButton } from './AppInstallModal';
+import { ThemeSwitcherButton } from './ThemePicker';
 
 interface AuthGateProps {
   initialTab?: AuthTab;
@@ -290,15 +291,15 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   }
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-[#050507] text-[#F4F4F5] flex flex-col justify-between px-4 py-8 sm:px-8">
-      {/* Multi-layered obsidian liquid ambient field */}
+    <div className="app-canvas relative min-h-screen w-full overflow-hidden flex flex-col justify-between px-4 py-8 sm:px-8">
+      {/* Multi-layered themed liquid ambient field */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 overflow-hidden"
       >
-        <div className="liquid-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[540px] w-[780px] rounded-full bg-sky-200/[0.05] blur-[140px]" />
-        <div className="liquid-orb-b absolute -bottom-52 right-1/4 h-[440px] w-[540px] rounded-full bg-emerald-400/[0.04] blur-[140px]" />
-        <div className="absolute top-1/3 left-1/5 h-[360px] w-[420px] rounded-full bg-indigo-300/[0.035] blur-[140px]" />
+        <div className="liquid-orb-a ambient-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[540px] w-[780px] rounded-full blur-[140px]" />
+        <div className="liquid-orb-b ambient-orb-b absolute -bottom-52 right-1/4 h-[440px] w-[540px] rounded-full blur-[140px]" />
+        <div className="ambient-orb-c absolute top-1/3 left-1/5 h-[360px] w-[420px] rounded-full blur-[140px]" />
       </div>
 
       {/* Minimal top wordmark */}
@@ -327,10 +328,11 @@ export const AuthGate: React.FC<AuthGateProps> = ({
             </button>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-zinc-400 hidden sm:inline">
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs text-zinc-400 hidden sm:inline mr-1">
             Zéro Google · Zéro e-mail · Chiffrement de bout en bout
           </span>
+          <ThemeSwitcherButton variant="icon" align="right" direction="down" />
           <PWAInstallButton compact onOpenModal={() => setInstallModalOpen(true)} />
         </div>
       </header>

@@ -14,6 +14,14 @@ export type AccentToneKey =
   | 'amber'
   | 'crimson';
 
+export type AppThemeKey =
+  | 'obsidian'
+  | 'aurora'
+  | 'abyssal'
+  | 'amber'
+  | 'velvet'
+  | 'graphite';
+
 export type GlassIntensity = 'subtle' | 'balanced' | 'deep';
 
 export type BubbleShapeKey = 'rounded' | 'pill' | 'sharp' | 'editorial';

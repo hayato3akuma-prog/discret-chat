@@ -13,6 +13,7 @@ import {
   User as UserIcon,
   X,
 } from 'lucide-react';
+import { useAppTheme } from '../lib/appTheme';
 import { BANNER_PRESETS } from '../lib/banners';
 import {
   BUBBLE_SHAPE_OPTIONS,
@@ -41,6 +42,7 @@ import type {
   PublicUser,
 } from '../types';
 import { ProfileBanner } from './ProfileBanner';
+import { ThemeGrid } from './ThemePicker';
 import { renderAvatarGlyph, TONE_CLASSES, UserAvatar } from './UserAvatar';
 
 interface ProfileModalProps {
@@ -106,6 +108,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onChangeMessageTextSize,
   onProfileUpdated,
 }) => {
+  const [appTheme, setAppTheme] = useAppTheme();
   const [activeTab, setActiveTab] = useState<ProfileTab>('identity');
 
   const [displayName, setDisplayName] = useState(user.displayName);
@@ -301,6 +304,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setBubbleStyle('glass');
     onChangeMessageTextSize('normal');
     onChangeGlassIntensity('balanced');
+    setAppTheme('obsidian');
     setError(null);
   }
 
@@ -715,13 +719,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     Images & GIF animés pris en charge
                   </span>
                 </div>
-                <div className="relative overflow-hidden rounded-2xl border border-white/[0.1] bg-[#06070b] p-4 space-y-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]">
+                <div className="app-canvas relative overflow-hidden rounded-2xl border border-white/[0.1] p-4 space-y-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]">
                   <div
                     aria-hidden="true"
                     className="pointer-events-none absolute inset-0"
                   >
-                    <div className="absolute -top-10 -left-8 h-32 w-44 rounded-full bg-sky-300/[0.14] blur-2xl" />
-                    <div className="absolute -bottom-10 -right-8 h-32 w-44 rounded-full bg-emerald-400/[0.12] blur-2xl" />
+                    <div className="ambient-orb-a absolute -top-10 -left-8 h-32 w-44 rounded-full blur-2xl" />
+                    <div className="ambient-orb-b absolute -bottom-10 -right-8 h-32 w-44 rounded-full blur-2xl" />
                   </div>
                   <div className="relative z-10 flex justify-start">
                     <div
@@ -954,6 +958,18 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           {/* TAB 3: INTERFACE & SECURITY INFO */}
           {activeTab === 'preferences' && (
             <div className="space-y-5">
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <p className="text-xs font-medium text-zinc-300">
+                    Thème de l’application
+                  </p>
+                  <span className="text-[11px] text-zinc-500">
+                    Appliqué immédiatement sur cet appareil
+                  </span>
+                </div>
+                <ThemeGrid value={appTheme} onChange={setAppTheme} />
+              </div>
+
               <div>
                 <p className="text-xs font-medium text-zinc-300 mb-2">
                   Intensité du verre dépoli sur cet appareil
