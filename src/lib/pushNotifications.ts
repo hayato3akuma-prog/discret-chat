@@ -65,6 +65,8 @@ export async function ensureServiceWorkerRegistration(): Promise<ServiceWorkerRe
       scope: '/',
       type: 'classic',
     });
+  } else {
+    void registration.update().catch(() => {});
   }
 
   const readyReg = await navigator.serviceWorker.ready;
@@ -273,8 +275,8 @@ export async function showLocalServiceWorkerNotification(options: {
     if (!reg) return;
     await reg.showNotification(options.title, {
       body: options.body,
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
+      icon: '/hoi-192.png',
+      badge: '/hoi-192.png',
       tag: options.tag,
       renotify: true,
       data: options.data ?? { url: '/' },

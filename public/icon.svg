@@ -1,14 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" rx="112" fill="#050507"/>
-  <rect x="16" y="16" width="480" height="480" rx="98" stroke="rgba(255,255,255,0.12)" stroke-width="4" fill="url(#bgGrad)"/>
   <defs>
-    <radialGradient id="bgGrad" cx="0.5" cy="0.3" r="0.7">
-      <stop offset="0%" stop-color="#1C1C24"/>
-      <stop offset="100%" stop-color="#050507"/>
+    <linearGradient id="obsidianBase" x1="56" y1="24" x2="456" y2="488" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E2433"/>
+      <stop offset="50%" stop-color="#0C0E16"/>
+      <stop offset="100%" stop-color="#06070B"/>
+    </linearGradient>
+    <radialGradient id="glassOrbTop" cx="0.26" cy="0.16" r="0.72">
+      <stop offset="0%" stop-color="#7DD3FC" stop-opacity="0.28"/>
+      <stop offset="55%" stop-color="#34D399" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#06070B" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="glassOrbBottom" cx="0.78" cy="0.82" r="0.62">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#06070B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rimHighlight" x1="256" y1="12" x2="256" y2="500" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.52"/>
+      <stop offset="45%" stop-color="#BAE6FD" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0.20"/>
+    </linearGradient>
+    <linearGradient id="specularSweep" x1="120" y1="20" x2="340" y2="270" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="glyphFill" x1="256" y1="186" x2="256" y2="326" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E4E4E7"/>
+    </linearGradient>
   </defs>
-  <!-- Architectural D + Lock Monolith -->
-  <path d="M168 136H256C322.274 136 376 189.726 376 256C376 322.274 322.274 376 256 376H168V136Z" stroke="#F4F4F5" stroke-width="28" stroke-linejoin="round"/>
-  <circle cx="256" cy="242" r="24" fill="#F4F4F5"/>
-  <path d="M256 262V304" stroke="#F4F4F5" stroke-width="20" stroke-linecap="round"/>
+
+  <rect x="8" y="8" width="496" height="496" rx="114" fill="url(#obsidianBase)"/>
+  <rect x="8" y="8" width="496" height="496" rx="114" fill="url(#glassOrbTop)"/>
+  <rect x="8" y="8" width="496" height="496" rx="114" fill="url(#glassOrbBottom)"/>
+  <path d="M122 8H390C452.96 8 504 59.04 504 122V210C410 176 296 164 176 196C98 216 40 248 8 272V122C8 59.04 59.04 8 122 8Z" fill="url(#specularSweep)"/>
+  <rect x="11" y="11" width="490" height="490" rx="111" stroke="url(#rimHighlight)" stroke-width="6"/>
+
+  <!-- HOI Geometric Monogram -->
+  <rect x="113" y="192" width="26" height="128" rx="13" fill="url(#glyphFill)"/>
+  <rect x="183" y="192" width="26" height="128" rx="13" fill="url(#glyphFill)"/>
+  <rect x="113" y="244" width="96" height="24" rx="12" fill="url(#glyphFill)"/>
+
+  <circle cx="291" cy="256" r="49" stroke="url(#glyphFill)" stroke-width="26"/>
+  <circle cx="291" cy="256" r="12" fill="#34D399"/>
+
+  <rect x="373" y="192" width="26" height="128" rx="13" fill="url(#glyphFill)"/>
 </svg>

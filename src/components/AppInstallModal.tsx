@@ -37,7 +37,7 @@ export const AppInstallModal: React.FC<AppInstallModalProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
-              src="/pwa-192x192.png"
+              src="/hoi-192.png"
               alt="Icône HOI"
               className="h-10 w-10 rounded-xl border border-white/[0.15] shadow-md"
             />

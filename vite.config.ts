@@ -11,13 +11,20 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'icon.svg'],
+        includeAssets: [
+          'hoi-apple-touch.png',
+          'hoi-icon.svg',
+          'hoi-192.png',
+          'hoi-512.png',
+          'hoi-maskable-512.png',
+        ],
         manifest: {
           id: '/',
-          name: 'HOI — Messagerie Privée',
+          name: 'HOI',
           short_name: 'HOI',
+          lang: 'fr',
           description:
-            'Messagerie privée chiffrée de bout en bout en noir glassmorphisme, sans e-mail et par clé unique.',
+            'Messagerie privée chiffrée de bout en bout, sans e-mail et par clé unique.',
           theme_color: '#050507',
           background_color: '#050507',
           display: 'standalone',
@@ -26,19 +33,19 @@ export default defineConfig(() => {
           scope: '/',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: '/hoi-192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: '/hoi-512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: '/hoi-maskable-512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',

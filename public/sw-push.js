@@ -62,8 +62,8 @@ self.addEventListener('push', (event) => {
 
       await self.registration.showNotification(payload.title || 'HOI', {
         body: payload.body || 'Nouveau message chiffré reçu.',
-        icon: '/pwa-192x192.png',
-        badge: '/pwa-192x192.png',
+        icon: '/hoi-192.png',
+        badge: '/hoi-192.png',
         tag: payload.tag || 'discret-message',
         renotify: true,
         silent: Boolean(payload.silent),

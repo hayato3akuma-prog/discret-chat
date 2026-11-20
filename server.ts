@@ -942,19 +942,63 @@ self.addEventListener('activate', (event) => {
       );
     });
 
+    app.get('/manifest.webmanifest', (_req, res) => {
+      res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+      res.json({
+        id: '/',
+        name: 'HOI',
+        short_name: 'HOI',
+        description:
+          'Messagerie privée chiffrée de bout en bout, sans e-mail et par clé unique.',
+        theme_color: '#050507',
+        background_color: '#050507',
+        display: 'standalone',
+        orientation: 'any',
+        start_url: '/',
+        scope: '/',
+        icons: [
+          {
+            src: '/hoi-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/hoi-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/hoi-maskable-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+        lang: 'fr',
+      });
+    });
+
     const { createServer: createViteServer } = await import('vite');
     const hmrDisabled = process.env.DISABLE_HMR === 'true';
-    const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        allowedHosts: true,
-        ws: hmrDisabled ? false : { server },
+    const devPlugins = [
+      {
+        name: 'inject-dev-manifest',
+        transformIndexHtml(html: string) {
+          if (html.includes('rel="manifest"')) return html;
+          return html.replace(
+            '</head>',
+            '    <link rel="manifest" href="/manifest.webmanifest" />\n  </head>'
+          );
+        },
       },
-      plugins: hmrDisabled
+      ...(hmrDisabled
         ? [
             {
               name: 'disable-hmr-client-ws',
-              transform(code, id) {
+              transform(code: string, id: string) {
                 if (id.endsWith('/vite/dist/client/client.mjs')) {
                   return code.replace(
                     /const transport = normalizeModuleRunnerTransport\(\(\(\) => \{[\s\S]*?\}\)\(\)\);/,
@@ -964,7 +1008,15 @@ self.addEventListener('activate', (event) => {
               },
             },
           ]
-        : [],
+        : []),
+    ];
+    const vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        ws: hmrDisabled ? false : { server },
+      },
+      plugins: devPlugins,
       appType: 'spa',
     });
     app.use(vite.middlewares);
