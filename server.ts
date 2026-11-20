@@ -954,6 +954,8 @@ self.addEventListener('activate', (event) => {
         theme_color: '#050507',
         background_color: '#050507',
         display: 'standalone',
+        display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
+        categories: ['social', 'communication'],
         orientation: 'any',
         start_url: '/',
         scope: '/',

@@ -96,12 +96,12 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
+      className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="new-contact-title"
     >
-      <div className="glass-liquid w-full max-w-md rounded-3xl p-6">
+      <div className="glass-liquid animate-panel-enter w-full max-w-md rounded-3xl p-6">
         <div className="flex items-center justify-between mb-4">
           <h2
             id="new-contact-title"

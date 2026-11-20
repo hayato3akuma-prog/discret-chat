@@ -5,11 +5,13 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+export type InstallPlatform = 'ios' | 'huawei' | 'android' | 'desktop';
+
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
-  const [platform, setPlatform] = useState<'ios' | 'android' | 'desktop'>('desktop');
+  const [platform, setPlatform] = useState<InstallPlatform>('desktop');
 
   useEffect(() => {
     const isStandalone =
@@ -20,6 +22,10 @@ export function usePWAInstall() {
     const ua = window.navigator.userAgent.toLowerCase();
     if (/iphone|ipad|ipod/.test(ua)) {
       setPlatform('ios');
+    } else if (
+      /huawei|harmonyos|hmscore|hisilicon|petal|honor|huaweibrowser/.test(ua)
+    ) {
+      setPlatform('huawei');
     } else if (/android/.test(ua)) {
       setPlatform('android');
     } else {
@@ -60,6 +66,7 @@ export function usePWAInstall() {
   return {
     isInstallable: Boolean(deferredPrompt),
     isInstalled,
+    isHuawei: platform === 'huawei',
     platform,
     install,
   };

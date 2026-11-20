@@ -179,7 +179,7 @@ export const ThemeSwitcherButton: React.FC<ThemeSwitcherButtonProps> = ({
 
       {open && (
         <div
-          className={`glass-liquid absolute z-50 w-64 rounded-2xl p-3 shadow-2xl ${
+          className={`glass-liquid animate-panel-enter absolute z-50 w-64 rounded-2xl p-3 shadow-2xl ${
             direction === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'
           } ${align === 'right' ? 'right-0' : 'left-0'}`}
         >

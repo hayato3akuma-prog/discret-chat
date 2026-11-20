@@ -1579,7 +1579,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="liquid-orb-a ambient-orb-a absolute -top-44 left-[12%] h-[520px] w-[680px] rounded-full blur-[140px]" />
         <div className="liquid-orb-b ambient-orb-b absolute top-[28%] right-[8%] h-[440px] w-[520px] rounded-full blur-[150px]" />
-        <div className="ambient-orb-c absolute -bottom-44 left-[28%] h-[420px] w-[560px] rounded-full blur-[150px]" />
+        <div className="liquid-orb-c ambient-orb-c absolute -bottom-44 left-[28%] h-[420px] w-[560px] rounded-full blur-[150px]" />
         <div className="ambient-sheen absolute inset-0" />
       </div>
 
@@ -1610,7 +1610,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={onOpenPresentation}
-                className="text-[11px] font-medium text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer whitespace-nowrap"
+                className="text-[11px] font-medium text-zinc-400 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
               >
                 Présentation
               </button>
@@ -1661,7 +1661,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <ProfileBanner
             user={session.user}
             className="h-14"
-            scrimClassName="bg-gradient-to-b from-black/25 via-black/45 to-[#08080b]/95"
+            scrimClassName="bg-gradient-to-b from-black/20 via-black/45 to-black/85"
           />
           <div className="relative -mt-6 flex items-end justify-between gap-2.5 px-4 pb-3.5">
             <button
@@ -1669,7 +1669,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               onClick={() => setIsProfileModalOpen(true)}
               className="flex items-end gap-3 min-w-0 flex-1 text-left rounded-xl p-1 -m-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
             >
-              <div className="rounded-full p-0.5 bg-[#09090C]/90 backdrop-blur-md border border-white/20 shadow-lg shrink-0">
+              <div className="rounded-full p-0.5 bg-black/65 backdrop-blur-md border border-white/20 shadow-lg shrink-0">
                 <UserAvatar user={session.user} size="sm" />
               </div>
               <div className="min-w-0 flex-1 pb-0.5">
@@ -1818,14 +1818,20 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         )}
                       </div>
                       <div className="mt-0.5 flex items-center justify-between gap-2">
-                        <p className="text-xs text-zinc-400 truncate">
-                          {conv.lastMessagePreview ??
-                            (isSelf
-                              ? 'Coffre-fort personnel'
-                              : friendAliases[conv.peer.id]?.trim()
-                                ? `${conv.peer.displayName} · ${conv.peer.handle}`
-                                : conv.peer.bio || conv.peer.handle)}
-                        </p>
+                        {!isSelf && typingPeers[conv.peer.id] ? (
+                          <p className="text-xs font-medium text-emerald-300 truncate">
+                            Écrit...
+                          </p>
+                        ) : (
+                          <p className="text-xs text-zinc-400 truncate">
+                            {conv.lastMessagePreview ??
+                              (isSelf
+                                ? 'Coffre-fort personnel'
+                                : friendAliases[conv.peer.id]?.trim()
+                                  ? `${conv.peer.displayName} · ${conv.peer.handle}`
+                                  : conv.peer.bio || conv.peer.handle)}
+                          </p>
+                        )}
                         {conv.unreadCount > 0 && (
                           <span className="shrink-0 font-mono text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-400/30 px-1.5 py-0.5 rounded-md tabular-nums">
                             {conv.unreadCount}
@@ -1839,6 +1845,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
               const { sg } = item;
               const isSelected = activeTargetId === item.id;
+              const groupTypingName = typingGroups[sg.group.id];
 
               return (
                 <button
@@ -1865,12 +1872,18 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       )}
                     </div>
                     <div className="mt-0.5 flex items-center justify-between gap-2">
-                      <p className="text-xs text-zinc-400 truncate">
-                        {sg.lastMessagePreview ??
-                          `${sg.group.members.length} membre${
-                            sg.group.members.length > 1 ? 's' : ''
-                          }${sg.group.description ? ` · ${sg.group.description}` : ''}`}
-                      </p>
+                      {groupTypingName ? (
+                        <p className="text-xs font-medium text-emerald-300 truncate">
+                          {groupTypingName} écrit...
+                        </p>
+                      ) : (
+                        <p className="text-xs text-zinc-400 truncate">
+                          {sg.lastMessagePreview ??
+                            `${sg.group.members.length} membre${
+                              sg.group.members.length > 1 ? 's' : ''
+                            }${sg.group.description ? ` · ${sg.group.description}` : ''}`}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -1937,13 +1950,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 }
               }
               className="h-full w-full scale-110 blur-3xl saturate-150"
-              scrimClassName="bg-gradient-to-b from-[#050507]/30 via-[#050507]/60 to-[#050507]"
+              scrimClassName="bg-gradient-to-b from-black/20 via-black/55 to-transparent"
             />
           </div>
         )}
 
         {activeTarget ? (
-          <>
+          <div
+            key={activeTargetId ?? 'active-thread'}
+            className="animate-thread-enter relative flex-1 min-h-0 flex flex-col"
+          >
             {/* Floating Liquid Glass Top Dock (Header + Optional Search / TTS / Mobile Ephemeral Bar) */}
             <div
               ref={topDockRef}
@@ -2366,12 +2382,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex h-full items-center justify-center">
-                    <div className="glass-liquid max-w-md w-full overflow-hidden rounded-3xl text-center">
+                    <div className="glass-liquid animate-panel-enter max-w-md w-full overflow-hidden rounded-3xl text-center">
                       {activePeer ? (
                         <>
                           <ProfileBanner user={activePeer} className="h-24" />
                           <div className="px-6 pb-6">
-                            <div className="-mt-7 mx-auto mb-3 inline-flex rounded-full p-1 bg-[#0a0a0e]/90 backdrop-blur-md border border-white/15 shadow-lg">
+                            <div className="-mt-7 mx-auto mb-3 inline-flex rounded-full p-1 bg-black/65 backdrop-blur-md border border-white/15 shadow-lg">
                               <UserAvatar
                                 user={activePeer}
                                 isSelfVault={isSelfSelected}
@@ -2406,7 +2422,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             className="h-24"
                           />
                           <div className="px-6 pb-6">
-                            <div className="-mt-8 mx-auto mb-3 inline-flex rounded-2xl p-1 bg-[#0a0a0e] border border-white/15">
+                            <div className="-mt-8 mx-auto mb-3 inline-flex rounded-2xl p-1 bg-black/65 backdrop-blur-md border border-white/15 shadow-lg">
                               <GroupAvatar group={activeGroup} size="md" />
                             </div>
                             <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
@@ -2454,11 +2470,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             }`}
                             aria-label={formatDayLabel(msg.timestamp)}
                           >
-                            <div className="h-px flex-1 bg-white/[0.06]" />
-                            <span className="text-[11px] font-medium text-zinc-500 whitespace-nowrap">
+                            <div className="glass-hairline flex-1" />
+                            <span className="text-[11px] font-medium text-zinc-400 whitespace-nowrap">
                               {formatDayLabel(msg.timestamp)}
                             </span>
-                            <div className="h-px flex-1 bg-white/[0.06]" />
+                            <div className="glass-hairline flex-1" />
                           </div>
                         )}
 
@@ -2467,7 +2483,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                           className={`group flex flex-col ${
                             isClusteredWithPrev ? 'mt-1' : 'mt-3'
                           } ${
-                            isNewEntry ? 'animate-msg-enter' : 'animate-msg-history'
+                            isNewEntry
+                              ? isMine
+                                ? 'animate-msg-sent'
+                                : 'animate-msg-received'
+                              : 'animate-msg-history'
                           } ${isMine ? 'items-end' : 'items-start'}`}
                         >
                           {showGroupSender && msg.sender && (
@@ -2504,12 +2524,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                               <button
                                 type="button"
                                 onClick={() => scrollToMessage(msg.replyTo!.id)}
-                                className="mb-2 block w-full text-left rounded-xl bg-black/30 border border-white/[0.08] px-3 py-1.5 hover:bg-black/45 transition-colors cursor-pointer"
+                                className="mb-2 block w-full text-left rounded-xl bg-black/25 backdrop-blur-md border border-white/[0.11] px-3 py-1.5 hover:bg-black/40 transition-colors cursor-pointer"
                               >
-                                <span className="block text-[11px] font-semibold text-emerald-300 truncate">
-                                  {msg.replyTo.senderName}
+                                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300 truncate">
+                                  <Reply className="h-3 w-3 shrink-0 opacity-80" />
+                                  <span className="truncate">{msg.replyTo.senderName}</span>
                                 </span>
-                                <span className="block text-xs text-zinc-300 truncate">
+                                <span className="block text-xs text-zinc-300 truncate mt-0.5">
                                   {msg.replyTo.excerpt}
                                 </span>
                               </button>
@@ -2920,7 +2941,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         }
                       }}
                       aria-label="Envoyer le message"
-                      className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-white to-zinc-200 px-4 sm:px-5 text-sm font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff,0_8px_20px_-6px_rgba(255,255,255,0.28)] transition-all hover:brightness-95 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                      className="btn-specular flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl px-4 sm:px-5 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                     >
                       <Send className="h-4 w-4" />
                       <span className="hidden sm:inline">Envoyer</span>
@@ -2930,10 +2951,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               )}
               </footer>
             </div>
-          </>
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center p-6">
-            <div className="glass-liquid max-w-sm rounded-3xl p-7 text-center space-y-4">
+            <div className="glass-liquid animate-panel-enter max-w-sm rounded-3xl p-7 text-center space-y-4">
               <div className="glass-control mx-auto flex h-11 w-11 items-center justify-center rounded-xl text-zinc-100">
                 <Lock className="h-5 w-5" />
               </div>
@@ -3203,7 +3224,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
       {lightboxMedia && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 backdrop-blur-xl p-4"
+          className="animate-backdrop-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/85 backdrop-blur-xl p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Aperçu du média"
@@ -3219,7 +3240,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </button>
           <div
             onClick={(e) => e.stopPropagation()}
-            className="glass-liquid rounded-3xl p-2 sm:p-3 max-w-[92vw] flex flex-col items-center gap-2"
+            className="glass-liquid animate-lightbox-enter rounded-3xl p-2 sm:p-3 max-w-[92vw] flex flex-col items-center gap-2"
           >
             <img
               src={lightboxMedia.dataUrl}

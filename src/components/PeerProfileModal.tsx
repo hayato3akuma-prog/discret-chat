@@ -106,12 +106,12 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto"
+      className="animate-backdrop-enter fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="peer-profile-title"
     >
-      <div className="glass-liquid w-full max-w-md overflow-hidden rounded-3xl my-auto">
+      <div className="glass-liquid animate-panel-enter w-full max-w-md overflow-hidden rounded-3xl my-auto">
         {/* Banner Header */}
         <div className="relative">
           <ProfileBanner user={peer} className="h-32" />
@@ -128,7 +128,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
         <div className="px-6 pb-6">
           {/* Overlapping Avatar + Handle */}
           <div className="-mt-8 mb-3 flex items-end justify-between gap-2">
-            <div className="rounded-full p-1 bg-[#0b0b0f]/90 backdrop-blur-md border border-white/15 shrink-0 shadow-lg">
+            <div className="rounded-full p-1 bg-black/65 backdrop-blur-md border border-white/15 shrink-0 shadow-lg">
               <UserAvatar user={peer} isSelfVault={isSelf} size="lg" />
             </div>
             <button
@@ -185,7 +185,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
           {!isSelf && onSaveFriendAlias && (
             <div className="mt-4 glass-surface rounded-2xl p-3.5">
               <div className="flex items-center justify-between gap-2 mb-1.5">
-                <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                <p className="text-xs font-medium text-zinc-400">
                   Nom d’ami (personnel)
                 </p>
                 {!editingAlias && (
@@ -274,7 +274,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
 
           {/* Biographie Section */}
           <div className="mt-4 glass-surface rounded-2xl p-3.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
+            <p className="text-xs font-medium text-zinc-400 mb-1.5">
               Biographie
             </p>
             {peer.biography ? (
@@ -290,7 +290,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
 
           {/* Public Fingerprint */}
           <div className="mt-3 glass-surface rounded-2xl p-3.5 space-y-1">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+            <p className="text-xs font-medium text-zinc-400">
               Empreinte publique SHA-256
             </p>
             <p className="font-mono text-xs text-zinc-300 leading-relaxed tabular-nums">
@@ -312,7 +312,7 @@ export const PeerProfileModal: React.FC<PeerProfileModalProps> = ({
                     onStartChat(peer);
                     onClose();
                   }}
-                  className="flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-3.5 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all cursor-pointer"
+                  className="btn-specular flex-1 min-h-[40px] flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium transition-all cursor-pointer"
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>Message</span>

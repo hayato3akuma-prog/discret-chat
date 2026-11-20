@@ -201,12 +201,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
+      className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="create-group-title"
     >
-      <div className="glass-liquid w-full max-w-lg rounded-3xl p-6 my-auto">
+      <div className="glass-liquid animate-panel-enter w-full max-w-lg rounded-3xl p-6 my-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <Users className="h-5 w-5 text-zinc-200" />
@@ -258,7 +258,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
             <div className="px-4 pb-3.5">
               <div className="-mt-8 flex items-end justify-between gap-3">
-                <div className="rounded-2xl p-1 bg-[#0b0b0f]/90 backdrop-blur-md border border-white/15 shadow-lg">
+                <div className="rounded-2xl p-1 bg-black/65 backdrop-blur-md border border-white/15 shadow-lg">
                   <GroupAvatar
                     group={{
                       name: name.trim() || 'Nouveau groupe',

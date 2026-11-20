@@ -103,11 +103,11 @@ const SENT_STYLE_TONE_CLASSES: Record<
 
 const RECEIVED_STYLE_CLASSES: Record<BubbleStyleKey, string> = {
   glass:
-    'bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-white/[0.02] border border-white/[0.12] text-zinc-100 backdrop-blur-2xl backdrop-saturate-[175%] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.14),inset_0_-1px_0_0_rgba(255,255,255,0.02),0_10px_26px_-12px_rgba(0,0,0,0.58)]',
-  solid: 'bg-[#14141a] border border-white/[0.07] text-zinc-100 shadow-sm',
-  outline: 'bg-[#08080c]/75 border border-white/[0.18] text-zinc-100',
+    'bg-gradient-to-br from-white/[0.095] via-white/[0.045] to-white/[0.02] border border-white/[0.14] text-zinc-100 backdrop-blur-2xl backdrop-saturate-[185%] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.17),inset_0_-1px_0_0_rgba(255,255,255,0.025),0_10px_28px_-12px_rgba(0,0,0,0.6)]',
+  solid: 'bg-[#14141a]/95 border border-white/[0.08] text-zinc-100 shadow-sm',
+  outline: 'bg-[#08080c]/75 backdrop-blur-md border border-white/[0.2] text-zinc-100',
   elevated:
-    'bg-gradient-to-b from-white/[0.11] via-white/[0.055] to-white/[0.028] border border-white/[0.16] text-zinc-100 backdrop-blur-2xl backdrop-saturate-[190%] shadow-[0_12px_28px_-10px_rgba(0,0,0,0.65),inset_0_1.5px_0_0_rgba(255,255,255,0.2),inset_0_-1px_0_0_rgba(255,255,255,0.03)]',
+    'bg-gradient-to-b from-white/[0.13] via-white/[0.06] to-white/[0.03] border border-white/[0.18] text-zinc-100 backdrop-blur-2xl backdrop-saturate-[195%] shadow-[0_14px_30px_-10px_rgba(0,0,0,0.68),inset_0_1.5px_0_0_rgba(255,255,255,0.24),inset_0_-1px_0_0_rgba(255,255,255,0.035)]',
 };
 
 export function getBubbleClassNames(params: {

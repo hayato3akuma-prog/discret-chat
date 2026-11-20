@@ -183,7 +183,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="liquid-orb-a ambient-orb-a absolute -top-52 left-[14%] h-[580px] w-[760px] rounded-full blur-[150px]" />
         <div className="liquid-orb-b ambient-orb-b absolute top-[34%] right-[8%] h-[500px] w-[600px] rounded-full blur-[150px]" />
-        <div className="ambient-orb-c absolute bottom-[-180px] left-[28%] h-[460px] w-[580px] rounded-full blur-[150px]" />
+        <div className="liquid-orb-c ambient-orb-c absolute bottom-[-180px] left-[28%] h-[460px] w-[580px] rounded-full blur-[150px]" />
       </div>
 
       {/* Top Bar Contract: exactly 3 zones (Brand — 4 Nav Links — 1 Primary Action) */}
@@ -476,14 +476,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            <div className="mt-10 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div
+              key={activeCategory}
+              className="animate-tab-enter mt-10 grid grid-cols-1 lg:grid-cols-3 gap-4"
+            >
               {visibleCapabilities.map((item) => {
                 const Icon = item.icon;
                 const useWide = activeCategory === 'all' && item.spanWide;
                 return (
                   <article
                     key={item.number}
-                    className={`glass-surface rounded-2xl p-6 sm:p-7 flex flex-col justify-between transition-all hover:border-white/[0.22] ${
+                    className={`glass-surface glass-interactive rounded-2xl p-6 sm:p-7 flex flex-col justify-between ${
                       useWide ? 'lg:col-span-2' : 'lg:col-span-1'
                     }`}
                   >
@@ -816,7 +819,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     Personnalisation Liquid Glass, GIF et installation PWA
                   </h3>
                   <p className="mt-1 text-xs sm:text-sm leading-relaxed text-zinc-400">
-                    Personnalisez votre profil, vos bulles de messages, vos GIF animés (avatars, bannières et discussions) et l’intensité du verre dépoli. Activez les notifications Push discrètes et installez HOI sur Android, iOS, macOS ou Windows.
+                    Personnalisez votre profil, vos bulles de messages, vos GIF animés (avatars, bannières et discussions) et l’intensité du verre dépoli. Activez les notifications Push discrètes et installez HOI sur Huawei (HarmonyOS), Android, iOS, macOS ou Windows.
                   </p>
                 </div>
               </div>

@@ -294,12 +294,12 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
+      className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="group-info-title"
     >
-      <div className="glass-liquid w-full max-w-lg overflow-hidden rounded-3xl my-auto">
+      <div className="glass-liquid animate-panel-enter w-full max-w-lg overflow-hidden rounded-3xl my-auto">
         <div className="relative">
           <ProfileBanner
             user={{
@@ -345,7 +345,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
         <div className="px-6 pb-6 pt-0 space-y-5">
           {/* Overlapping Group Avatar + Upload Buttons */}
           <div className="-mt-8 flex items-end justify-between gap-3">
-            <div className="rounded-2xl p-1 bg-[#0b0b0f]/90 backdrop-blur-md border border-white/15 shadow-lg">
+            <div className="rounded-2xl p-1 bg-black/65 backdrop-blur-md border border-white/15 shadow-lg">
               <GroupAvatar
                 group={{
                   name: name || group.name,

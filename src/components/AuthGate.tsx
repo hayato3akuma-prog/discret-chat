@@ -299,7 +299,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
       >
         <div className="liquid-orb-a ambient-orb-a absolute -top-48 left-1/2 -translate-x-1/2 h-[540px] w-[780px] rounded-full blur-[140px]" />
         <div className="liquid-orb-b ambient-orb-b absolute -bottom-52 right-1/4 h-[440px] w-[540px] rounded-full blur-[140px]" />
-        <div className="ambient-orb-c absolute top-1/3 left-1/5 h-[360px] w-[420px] rounded-full blur-[140px]" />
+        <div className="liquid-orb-c ambient-orb-c absolute top-1/3 left-1/5 h-[360px] w-[420px] rounded-full blur-[140px]" />
       </div>
 
       {/* Minimal top wordmark */}
@@ -340,8 +340,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({
       {/* Main centered glass vault */}
       <main className="relative z-10 mx-auto my-auto w-full max-w-[460px] py-8">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl glass-surface text-zinc-100">
-            <Lock className="h-5 w-5" strokeWidth={1.75} />
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl glass-surface p-1.5 shadow-[0_14px_34px_-10px_rgba(0,0,0,0.75)]">
+            <img
+              src="/hoi-icon.svg"
+              alt="HOI"
+              className="h-full w-full rounded-xl object-contain"
+            />
           </div>
           <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-white text-balance">
             Messagerie privée souveraine
@@ -351,7 +355,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           </p>
         </div>
 
-        <div className="glass-liquid rounded-3xl p-6 sm:p-7">
+        <div className="glass-liquid animate-panel-enter rounded-3xl p-6 sm:p-7">
           {!generatedKey ? (
             <>
               <div
@@ -394,7 +398,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
               </div>
 
               {tab === 'login' ? (
-                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                <form key="login-form" onSubmit={handleLoginSubmit} className="animate-tab-enter space-y-4">
                   <div>
                     <label
                       htmlFor="master-key-input"
@@ -455,7 +459,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
                   </p>
                 </form>
               ) : (
-                <form onSubmit={handleCreateAccount} className="space-y-4">
+                <form key="create-form" onSubmit={handleCreateAccount} className="animate-tab-enter space-y-4">
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label

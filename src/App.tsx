@@ -208,37 +208,45 @@ export default function App() {
     <>
       {!isAuthenticated ? (
         unauthView === 'landing' ? (
-          <LandingPage
-            isAuthenticated={false}
-            onOpenAuth={handleOpenAuth}
-          />
+          <div key="landing-unauth" className="animate-view-enter min-h-screen w-full">
+            <LandingPage
+              isAuthenticated={false}
+              onOpenAuth={handleOpenAuth}
+            />
+          </div>
         ) : (
-          <AuthGate
-            key={authInitialTab}
-            initialTab={authInitialTab}
-            onAuthenticated={handleAuthenticated}
-            onShowPresentation={handleShowPresentation}
-          />
+          <div key="auth-gate" className="animate-view-enter min-h-screen w-full">
+            <AuthGate
+              key={authInitialTab}
+              initialTab={authInitialTab}
+              onAuthenticated={handleAuthenticated}
+              onShowPresentation={handleShowPresentation}
+            />
+          </div>
         )
       ) : showPresentationWhenAuthed ? (
-        <LandingPage
-          isAuthenticated
-          onOpenAuth={handleOpenAuth}
-          onReturnToWorkspace={() => {
-            setShowPresentationWhenAuthed(false);
-            window.scrollTo({ top: 0, behavior: 'auto' });
-          }}
-        />
+        <div key="landing-authed" className="animate-view-enter min-h-screen w-full">
+          <LandingPage
+            isAuthenticated
+            onOpenAuth={handleOpenAuth}
+            onReturnToWorkspace={() => {
+              setShowPresentationWhenAuthed(false);
+              window.scrollTo({ top: 0, behavior: 'auto' });
+            }}
+          />
+        </div>
       ) : (
-        <ChatWorkspace
-          session={session!}
-          onUpdateUser={handleUpdateUser}
-          onLockSession={handleLockSession}
-          onOpenPresentation={() => {
-            setShowPresentationWhenAuthed(true);
-            window.scrollTo({ top: 0, behavior: 'auto' });
-          }}
-        />
+        <div key="chat-workspace" className="animate-view-enter h-dvh w-full">
+          <ChatWorkspace
+            session={session!}
+            onUpdateUser={handleUpdateUser}
+            onLockSession={handleLockSession}
+            onOpenPresentation={() => {
+              setShowPresentationWhenAuthed(true);
+              window.scrollTo({ top: 0, behavior: 'auto' });
+            }}
+          />
+        </div>
       )}
       <OfflineBanner />
     </>

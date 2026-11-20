@@ -37,12 +37,12 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
+      className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="security-modal-title"
     >
-      <div className="glass-liquid w-full max-w-lg rounded-3xl p-6 space-y-5">
+      <div className="glass-liquid animate-panel-enter w-full max-w-lg rounded-3xl p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="h-5 w-5 text-emerald-400" />
@@ -151,7 +151,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-b from-white to-zinc-200 px-4 py-2 text-xs font-medium text-zinc-950 shadow-[inset_0_1px_0_0_#ffffff] hover:brightness-95 transition-all cursor-pointer"
+            className="btn-specular flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium transition-all cursor-pointer"
           >
             <Lock className="h-3.5 w-3.5" />
             <span>Fermer</span>

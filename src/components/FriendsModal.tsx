@@ -136,12 +136,12 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
+      className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="friends-modal-title"
     >
-      <div className="glass-liquid w-full max-w-xl rounded-3xl p-6 my-auto">
+      <div className="glass-liquid animate-panel-enter w-full max-w-xl rounded-3xl p-6 my-auto">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2

@@ -51,12 +51,12 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
+      className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="notifications-modal-title"
     >
-      <div className="glass-liquid w-full max-w-lg rounded-3xl p-6 space-y-5 max-h-[90dvh] overflow-y-auto">
+      <div className="glass-liquid animate-panel-enter w-full max-w-lg rounded-3xl p-6 space-y-5 max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {isActive ? (

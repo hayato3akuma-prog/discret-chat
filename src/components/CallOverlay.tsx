@@ -379,12 +379,12 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       <>
         {audioElement}
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+          className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Appel entrant"
         >
-          <div className="glass-liquid w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl">
+          <div className="glass-liquid animate-panel-enter w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl">
             <div className="relative">
               <ProfileBanner
                 user={peer}
@@ -634,12 +634,12 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     <>
       {audioElement}
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md sm:p-6"
+        className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md sm:p-6"
         role="dialog"
         aria-modal="true"
         aria-label="Appel temps réel HOI"
       >
-        <div className="glass-elevated relative w-full h-dvh sm:h-[86dvh] sm:max-h-[720px] sm:max-w-4xl sm:rounded-3xl overflow-hidden border-0 sm:border sm:border-white/[0.14] bg-[#07070b] flex flex-col shadow-2xl">
+        <div className="glass-elevated animate-panel-enter relative w-full h-dvh sm:h-[86dvh] sm:max-h-[720px] sm:max-w-4xl sm:rounded-3xl overflow-hidden border-0 sm:border sm:border-white/[0.14] bg-[var(--app-bg)] flex flex-col shadow-2xl">
           {/* Top Call Bar */}
           <div className="relative z-20 flex items-center justify-between gap-2 px-4 sm:px-5 py-3.5 border-b border-white/[0.08] glass-liquid rounded-none">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -792,13 +792,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           )}
 
           {/* Center Media Stage */}
-          <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-[#050507]">
+          <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-[var(--app-bg)]">
             {peer && (
               <div className="pointer-events-none absolute inset-0 opacity-20">
                 <ProfileBanner
                   user={peer}
                   className="h-full"
-                  scrimClassName="bg-gradient-to-b from-black/50 via-[#050507]/85 to-[#050507]"
+                  scrimClassName="bg-gradient-to-b from-black/45 via-black/80 to-black/95"
                 />
               </div>
             )}

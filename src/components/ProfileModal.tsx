@@ -400,7 +400,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-3 sm:p-4"
+      className="animate-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="profile-modal-title"
@@ -412,7 +412,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     >
       <form
         onSubmit={handleSave}
-        className="glass-liquid w-full max-w-xl max-h-[90dvh] rounded-3xl flex flex-col overflow-hidden"
+        className="glass-liquid animate-panel-enter w-full max-w-xl max-h-[90dvh] rounded-3xl flex flex-col overflow-hidden"
       >
         {/* Sticky Minimal Header */}
         <div className="flex items-center justify-between gap-3 px-5 sm:px-6 pt-5 pb-4 border-b border-white/[0.06] shrink-0">
@@ -533,7 +533,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
               <div className="px-4 pb-4">
                 <div className="-mt-8 mb-2.5 flex items-end justify-between gap-3">
-                  <div className="rounded-full p-1 bg-[#0b0b0f] border border-white/10 shrink-0">
+                  <div className="rounded-full p-1 bg-black/65 backdrop-blur-md border border-white/15 shadow-lg shrink-0">
                     <UserAvatar user={previewUser} size="lg" />
                   </div>
 
