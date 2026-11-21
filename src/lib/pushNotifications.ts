@@ -1,7 +1,9 @@
 import { getFreshFirebaseIdToken } from './firebase';
+import { getApiUrl, isCapacitorNative } from './runtimeOrigin';
 
 export function isPushSupported(): boolean {
   return (
+    !isCapacitorNative() &&
     typeof window !== 'undefined' &&
     'serviceWorker' in navigator &&
     'PushManager' in window &&
@@ -113,7 +115,7 @@ export async function subscribeToWebPush(
   }
 
   const activeToken = await resolveBearerToken(token);
-  const keyRes = await fetch('/api/push/vapid-public-key', {
+  const keyRes = await fetch(getApiUrl('/api/push/vapid-public-key'), {
     headers: { Authorization: `Bearer ${activeToken}` },
   });
   if (!keyRes.ok) {
@@ -138,7 +140,7 @@ export async function subscribeToWebPush(
     });
   }
 
-  const subRes = await fetch('/api/push/subscribe', {
+  const subRes = await fetch(getApiUrl('/api/push/subscribe'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -173,7 +175,7 @@ export async function syncPushSubscriptionIfGranted(
     if (!subscription) return false;
 
     const activeToken = await resolveBearerToken(token);
-    const keyRes = await fetch('/api/push/vapid-public-key', {
+    const keyRes = await fetch(getApiUrl('/api/push/vapid-public-key'), {
       headers: { Authorization: `Bearer ${activeToken}` },
     });
     if (keyRes.ok) {
@@ -191,7 +193,7 @@ export async function syncPushSubscriptionIfGranted(
       }
     }
 
-    const res = await fetch('/api/push/subscribe', {
+    const res = await fetch(getApiUrl('/api/push/subscribe'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -217,7 +219,7 @@ export async function unsubscribeFromWebPush(token: string): Promise<void> {
   }
 
   const activeToken = await resolveBearerToken(token);
-  await fetch('/api/push/unsubscribe', {
+  await fetch(getApiUrl('/api/push/unsubscribe'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -233,7 +235,7 @@ export async function updatePushDiscreetPreference(
 ): Promise<void> {
   const subscription = await getExistingPushSubscription();
   const activeToken = await resolveBearerToken(token);
-  await fetch('/api/push/preferences', {
+  await fetch(getApiUrl('/api/push/preferences'), {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -252,7 +254,7 @@ export async function sendTestWebPush(token: string): Promise<{
   removed: number;
 }> {
   const activeToken = await resolveBearerToken(token);
-  const res = await fetch('/api/push/test', {
+  const res = await fetch(getApiUrl('/api/push/test'), {
     method: 'POST',
     headers: { Authorization: `Bearer ${activeToken}` },
   });

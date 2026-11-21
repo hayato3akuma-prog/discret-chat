@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getFreshFirebaseIdToken } from '../lib/firebase';
+import { getApiUrl } from '../lib/runtimeOrigin';
 import {
   ensureServiceWorkerRegistration,
   getExistingPushSubscription,
@@ -66,7 +67,7 @@ export function usePushNotifications(token: string | null) {
           token
         ) {
           const activeToken = (await getFreshFirebaseIdToken()) || token;
-          await fetch('/api/push/subscribe', {
+          await fetch(getApiUrl('/api/push/subscribe'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

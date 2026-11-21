@@ -18,6 +18,7 @@ import {
   EyeOff,
   Hourglass,
   ImagePlus,
+  Images,
   Loader2,
   Lock,
   MessageSquare,
@@ -35,6 +36,7 @@ import {
   Square,
   SquarePen,
   Trash2,
+  Upload,
   User,
   UserCheck,
   UserPlus,
@@ -54,6 +56,7 @@ import { getBubbleClassNames, getMessageTextSizeClass } from '../lib/bubbleTheme
 import { getFreshFirebaseIdToken } from '../lib/firebase';
 import { prepareChatMediaDataUrl } from '../lib/imageUtils';
 import { showLocalServiceWorkerNotification } from '../lib/pushNotifications';
+import { getWsUrl } from '../lib/runtimeOrigin';
 import {
   decryptAndVerifyGroupMessage,
   decryptAndVerifyMessage,
@@ -420,6 +423,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [pendingAttachment, setPendingAttachment] = useState<ChatAttachment | null>(null);
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const [lightboxMedia, setLightboxMedia] = useState<ChatAttachment | null>(null);
+  const [mediaGalleryOpen, setMediaGalleryOpen] = useState(false);
+  const [mediaGalleryTab, setMediaGalleryTab] = useState<'images' | 'audio'>('images');
+  const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
   const [inChatSearchOpen, setInChatSearchOpen] = useState(false);
   const [inChatSearchQuery, setInChatSearchQuery] = useState('');
@@ -461,6 +467,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const recordStartRef = useRef<number>(0);
   const voiceActionRef = useRef<'send' | 'cancel'>('cancel');
   const voiceMaskRef = useRef<boolean>(false);
+  const draftsRef = useRef<Record<string, string>>({});
+  const dragCounterRef = useRef(0);
 
   useEffect(() => {
     voiceMaskRef.current = voiceMaskEnabled;
@@ -976,12 +984,26 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     setReplyingTo(null);
     setPendingAttachment(null);
     setLightboxMedia(null);
+    setMediaGalleryOpen(false);
+    setIsDraggingMedia(false);
+    dragCounterRef.current = 0;
     setInChatSearchOpen(false);
     setInChatSearchQuery('');
     setActiveSearchMatchIdx(0);
     setShowScrollToBottom(false);
     setUnreadBelowCount(0);
     ttsStopRef.current();
+    const savedDraft = activeTargetId ? (draftsRef.current[activeTargetId] ?? '') : '';
+    setComposerText(savedDraft);
+    window.requestAnimationFrame(() => {
+      const el = composerRef.current;
+      if (el) {
+        el.style.height = 'auto';
+        if (savedDraft) {
+          el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+        }
+      }
+    });
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       voiceActionRef.current = 'cancel';
       mediaRecorderRef.current.stop();
@@ -1141,6 +1163,35 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       .map((m) => m.id);
   }, [inChatSearchQuery, messages, nowTick, revealedInkIds]);
 
+  const visibleGalleryMessages = useMemo(
+    () =>
+      messages.filter(
+        (m) =>
+          !m.decryptionError &&
+          !(m.unlockAt && nowTick < m.unlockAt) &&
+          !(m.invisibleInk && !revealedInkIds[m.id])
+      ),
+    [messages, nowTick, revealedInkIds]
+  );
+
+  const galleryImages = useMemo(
+    () =>
+      visibleGalleryMessages
+        .filter((m) => m.attachment?.kind === 'image')
+        .slice()
+        .reverse(),
+    [visibleGalleryMessages]
+  );
+
+  const galleryVoiceNotes = useMemo(
+    () =>
+      visibleGalleryMessages
+        .filter((m) => m.attachment?.kind === 'audio')
+        .slice()
+        .reverse(),
+    [visibleGalleryMessages]
+  );
+
   useEffect(() => {
     if (searchMatches.length === 0) {
       setActiveSearchMatchIdx(0);
@@ -1178,6 +1229,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       } else if (e.key === 'Escape') {
         if (lightboxMedia) {
           setLightboxMedia(null);
+        } else if (mediaGalleryOpen) {
+          setMediaGalleryOpen(false);
         } else if (inChatSearchOpen) {
           setInChatSearchOpen(false);
           setInChatSearchQuery('');
@@ -1188,7 +1241,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [inChatSearchOpen, replyingTo, lightboxMedia, camouflageMode]);
+  }, [inChatSearchOpen, replyingTo, lightboxMedia, mediaGalleryOpen, camouflageMode]);
 
   // Real-time WebSocket connection for WebRTC call signaling & live typing indicators
   useEffect(() => {
@@ -1204,10 +1257,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       try {
         const freshToken = (await getFreshFirebaseIdToken()) || session.token;
         if (closedByUser) return;
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(
-          freshToken
-        )}`;
+        const wsUrl = getWsUrl(`/ws?token=${encodeURIComponent(freshToken)}`);
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
@@ -1476,6 +1526,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   function handleComposerChange(val: string) {
     setComposerText(val);
+    if (activeTargetId) {
+      if (val.length > 0) {
+        draftsRef.current[activeTargetId] = val;
+      } else {
+        delete draftsRef.current[activeTargetId];
+      }
+    }
     emitTyping(val.trim().length > 0);
     if (typingTimeoutRef.current) {
       window.clearTimeout(typingTimeoutRef.current);
@@ -1531,11 +1588,51 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   }
 
+  function handleThreadDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    setIsDraggingMedia(true);
+  }
+
+  function handleThreadDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  }
+
+  function handleThreadDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) {
+      setIsDraggingMedia(false);
+    }
+  }
+
+  function handleThreadDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDraggingMedia(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) {
+      void handleAttachMediaFile(file);
+    }
+  }
+
   async function sendEncryptedMessagePayload(params: {
     trimmedText: string;
     attachment: ChatAttachment | null;
   }) {
     if (!activeTarget) return;
+    const sentTargetId =
+      activeTarget.kind === 'dm'
+        ? `dm:${activeTarget.peer.id}`
+        : `group:${activeTarget.group.id}`;
     const { trimmedText, attachment: currentAttachment } = params;
     if (!trimmedText && !currentAttachment) return;
 
@@ -1622,6 +1719,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         );
         if (currentAttachment?.kind !== 'audio') {
           setComposerText('');
+          delete draftsRef.current[sentTargetId];
           setPendingAttachment(null);
         }
         setReplyingTo(null);
@@ -1713,6 +1811,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         );
         if (currentAttachment?.kind !== 'audio') {
           setComposerText('');
+          delete draftsRef.current[sentTargetId];
           setPendingAttachment(null);
         }
         setReplyingTo(null);
@@ -2746,8 +2845,30 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         {activeTarget ? (
           <div
             key={activeTargetId ?? 'active-thread'}
+            onDragEnter={handleThreadDragEnter}
+            onDragOver={handleThreadDragOver}
+            onDragLeave={handleThreadDragLeave}
+            onDrop={handleThreadDrop}
             className="animate-thread-enter relative flex-1 min-h-0 flex flex-col"
           >
+            {isDraggingMedia && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-3 z-40 rounded-3xl glass-liquid border-2 border-dashed border-emerald-400/75 flex flex-col items-center justify-center gap-3 text-center px-6 animate-backdrop-enter"
+              >
+                <div className="h-14 w-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 shadow-lg">
+                  <Upload className="h-6 w-6" />
+                </div>
+                <div className="space-y-1 max-w-xs">
+                  <p className="font-[family-name:var(--font-display)] text-base font-semibold text-white">
+                    Déposer une image ou un GIF
+                  </p>
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    Chiffrement local AES-GCM avant l’envoi dans la discussion.
+                  </p>
+                </div>
+              </div>
+            )}
             {/* Floating Liquid Glass Top Dock (Header + Optional Search / TTS / Mobile Ephemeral Bar) */}
             <div
               ref={topDockRef}
@@ -3001,6 +3122,28 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             </span>
                           </button>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatOptionsMenuOpen(false);
+                            setMediaGalleryTab(
+                              galleryImages.length === 0 && galleryVoiceNotes.length > 0
+                                ? 'audio'
+                                : 'images'
+                            );
+                            setMediaGalleryOpen(true);
+                          }}
+                          className="w-full flex items-center justify-between gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <Images className="h-4 w-4 text-zinc-400 shrink-0" />
+                            <span>Médias & vocaux</span>
+                          </span>
+                          <span className="font-mono text-[11px] text-zinc-400 tabular-nums">
+                            {galleryImages.length + galleryVoiceNotes.length}
+                          </span>
+                        </button>
 
                         {activePeer && (
                           <button
@@ -4272,23 +4415,45 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </button>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-white/[0.08] text-xs text-zinc-400">
-                <button
-                  type="button"
-                  onClick={() => setIsProfileModalOpen(true)}
-                  className="hover:text-white transition-colors cursor-pointer"
-                >
-                  Personnaliser le profil et les bulles
-                </button>
-                {onOpenPresentation && (
+              <div className="space-y-2.5 pt-2 border-t border-white/[0.08]">
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-400">
                   <button
                     type="button"
-                    onClick={onOpenPresentation}
+                    onClick={() => setIsProfileModalOpen(true)}
                     className="hover:text-white transition-colors cursor-pointer"
                   >
-                    Découvrir HOI
+                    Personnaliser le profil et les bulles
                   </button>
-                )}
+                  {onOpenPresentation && (
+                    <button
+                      type="button"
+                      onClick={onOpenPresentation}
+                      className="hover:text-white transition-colors cursor-pointer"
+                    >
+                      Découvrir HOI
+                    </button>
+                  )}
+                </div>
+                <div className="hidden sm:flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-zinc-500">
+                  <span className="inline-flex items-center gap-1.5">
+                    <kbd className="rounded-md bg-white/[0.06] border border-white/[0.1] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                      ⌘K
+                    </kbd>
+                    <span>Rechercher</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <kbd className="rounded-md bg-white/[0.06] border border-white/[0.1] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                      Alt+V
+                    </kbd>
+                    <span>Anti-épaule</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <kbd className="rounded-md bg-white/[0.06] border border-white/[0.1] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                      ⌘⇧H
+                    </kbd>
+                    <span>Camouflage</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -4538,6 +4703,171 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {mediaGalleryOpen && activeTarget && (
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Médias et notes vocales chiffrés"
+        >
+          <div
+            aria-hidden="true"
+            onClick={() => setMediaGalleryOpen(false)}
+            className="fixed inset-0 bg-black/65 backdrop-blur-md animate-backdrop-enter"
+          />
+
+          <div className="glass-liquid animate-panel-enter relative z-10 w-full max-w-xl max-h-[84dvh] flex flex-col rounded-3xl shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-emerald-300 shrink-0">
+                  <Images className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="font-[family-name:var(--font-display)] text-sm font-semibold text-white truncate">
+                    Médias & vocaux déchiffrés
+                  </h2>
+                  <p className="text-[11px] text-zinc-400 truncate">
+                    Capsules verrouillées et encre invisible masquée exclues.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMediaGalleryOpen(false)}
+                aria-label="Fermer la galerie"
+                className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="px-5 pt-3 pb-2 border-b border-white/[0.06] flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMediaGalleryTab('images')}
+                aria-pressed={mediaGalleryTab === 'images'}
+                className={`min-h-[36px] inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  mediaGalleryTab === 'images'
+                    ? 'glass-control-active text-white'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.05]'
+                }`}
+              >
+                <Images className="h-3.5 w-3.5" />
+                <span>Images & GIF ({galleryImages.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMediaGalleryTab('audio')}
+                aria-pressed={mediaGalleryTab === 'audio'}
+                className={`min-h-[36px] inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  mediaGalleryTab === 'audio'
+                    ? 'glass-control-active text-white'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.05]'
+                }`}
+              >
+                <Mic className="h-3.5 w-3.5" />
+                <span>Notes vocales ({galleryVoiceNotes.length})</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {mediaGalleryTab === 'images' ? (
+                galleryImages.length === 0 ? (
+                  <div className="py-12 text-center space-y-2">
+                    <Images className="h-7 w-7 text-zinc-500 mx-auto" />
+                    <p className="text-sm font-medium text-zinc-200">
+                      Aucune image ou GIF visible
+                    </p>
+                    <p className="text-xs text-zinc-400 max-w-xs mx-auto">
+                      Glissez une image directement dans la conversation pour l’envoyer chiffrée.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {galleryImages.map((item) => {
+                      const att = item.attachment!;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setLightboxMedia(att)}
+                          className="group relative aspect-square rounded-2xl overflow-hidden glass-surface border border-white/[0.08] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                        >
+                          <img
+                            src={att.dataUrl}
+                            alt={att.name || 'Média chiffré'}
+                            className={`h-full w-full object-cover transition-transform duration-300 group-hover:scale-105 ${
+                              shoulderShield ? 'shoulder-shield-blur' : ''
+                            }`}
+                          />
+                          {att.mimeType === 'image/gif' && (
+                            <span className="absolute top-2 left-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-300">
+                              GIF
+                            </span>
+                          )}
+                          <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-2.5 py-1.5 text-left font-mono text-[10px] text-zinc-200 truncate">
+                            {new Date(item.timestamp).toLocaleDateString('fr-FR', {
+                              day: '2-digit',
+                              month: 'short',
+                            })}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              ) : galleryVoiceNotes.length === 0 ? (
+                <div className="py-12 text-center space-y-2">
+                  <Mic className="h-7 w-7 text-zinc-500 mx-auto" />
+                  <p className="text-sm font-medium text-zinc-200">
+                    Aucune note vocale visible
+                  </p>
+                  <p className="text-xs text-zinc-400 max-w-xs mx-auto">
+                    Les notes vocales et voix anonymes déchiffrées apparaîtront ici.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {galleryVoiceNotes.map((item) => {
+                    const att = item.attachment!;
+                    const senderLabel =
+                      item.fromId === session.user.id
+                        ? 'Vous'
+                        : item.sender
+                          ? getContactDisplayName(item.sender, friendAliases)
+                          : activePeer
+                            ? getContactDisplayName(activePeer, friendAliases)
+                            : 'Membre';
+                    return (
+                      <div
+                        key={item.id}
+                        className="glass-surface rounded-2xl p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+                          <span className="font-medium text-zinc-200 truncate">
+                            {senderLabel}
+                            {att.voiceMasked ? ' • Voix anonyme' : ''}
+                          </span>
+                          <span className="font-mono shrink-0">
+                            {formatTime(item.timestamp)}
+                          </span>
+                        </div>
+                        <div className={shoulderShield ? 'shoulder-shield-blur' : ''}>
+                          <VoiceMessagePlayer
+                            attachment={att}
+                            isMine={item.fromId === session.user.id}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

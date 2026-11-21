@@ -15,6 +15,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, getFreshFirebaseIdToken, handleFirestoreError, OperationType } from './firebase';
+import { getApiUrl } from './runtimeOrigin';
 import type {
   AccentToneKey,
   BannerPresetKey,
@@ -2017,7 +2018,7 @@ export async function dispatchPushNotification(payload: {
   try {
     const token = await getFreshFirebaseIdToken();
     if (!token) return;
-    await fetch('/api/push/dispatch', {
+    await fetch(getApiUrl('/api/push/dispatch'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

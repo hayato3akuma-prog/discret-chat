@@ -8,9 +8,9 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  Lock,
   ShieldCheck,
   Shuffle,
+  Upload,
 } from 'lucide-react';
 import {
   createUserWithEmailAndPassword,
@@ -93,6 +93,33 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   const [downloadedKey, setDownloadedKey] = useState(false);
   const [confirmedSaved, setConfirmedSaved] = useState(false);
   const [installModalOpen, setInstallModalOpen] = useState(false);
+  const keyFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  async function handleImportKeyFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setLoginError(null);
+    try {
+      const content = await file.text();
+      const match = content.match(/HOI-[A-Z0-9-]{12,}/i);
+      if (match) {
+        setLoginKey(match[0].trim());
+        return;
+      }
+      const nonEmptyLine = content
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l.length >= 16 && !l.includes(' ') && !l.startsWith('='));
+      if (nonEmptyLine) {
+        setLoginKey(nonEmptyLine);
+      } else {
+        setLoginError('Aucune clé HOI valide trouvée dans ce fichier.');
+      }
+    } catch {
+      setLoginError('Impossible de lire ce fichier texte.');
+    }
+  }
 
   async function handleLoginSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -393,13 +420,30 @@ export const AuthGate: React.FC<AuthGateProps> = ({
 
               {tab === 'login' ? (
                 <form key="login-form" onSubmit={handleLoginSubmit} className="animate-tab-enter space-y-4">
+                  <input
+                    ref={keyFileInputRef}
+                    type="file"
+                    accept=".txt,text/plain"
+                    onChange={handleImportKeyFile}
+                    className="hidden"
+                  />
                   <div>
-                    <label
-                      htmlFor="master-key-input"
-                      className="block text-xs font-medium text-zinc-300 mb-2"
-                    >
-                      Clé unique d’accès
-                    </label>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <label
+                        htmlFor="master-key-input"
+                        className="block text-xs font-medium text-zinc-300"
+                      >
+                        Clé unique d’accès
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => keyFileInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                      >
+                        <Upload className="h-3 w-3" />
+                        <span>Importer .txt</span>
+                      </button>
+                    </div>
                     <div className="relative flex items-center glass-input rounded-xl transition-colors">
                       <KeyRound className="ml-3.5 h-4 w-4 text-zinc-500 shrink-0" />
                       <input

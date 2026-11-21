@@ -1,0 +1,70 @@
+name: Build HOI Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: "URL HTTPS publique du serveur HOI (ex: https://votre-app.run.app)"
+        required: false
+        default: ""
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web bundle for Capacitor
+        env:
+          VITE_SERVER_URL: ${{ github.event.inputs.server_url || vars.HOI_SERVER_URL || 'https://ais-pre-3fzquesprtdqbatlupnoj3-541476130272.europe-west1.run.app' }}
+        run: npm run build
+
+      - name: Initialize & sync Capacitor Android
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          node scripts/prepare-android.mjs
+          npx cap sync android
+
+      - name: Build Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Prepare APK artifact
+        run: |
+          mkdir -p apk-output
+          cp android/app/build/outputs/apk/debug/app-debug.apk apk-output/HOI-android.apk
+
+      - name: Upload HOI Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HOI-android-apk
+          path: apk-output/HOI-android.apk
+          retention-days: 30

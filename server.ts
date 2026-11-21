@@ -423,6 +423,27 @@ function sanitizeCallerProfile(
 
 async function startServer() {
   const app = express();
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    const extraOrigin = process.env.CORS_ALLOWED_ORIGIN?.trim();
+    const allowedOrigins = new Set([
+      'https://localhost',
+      'http://localhost',
+      'capacitor://localhost',
+      ...(extraOrigin ? [extraOrigin] : []),
+    ]);
+    if (origin && allowedOrigins.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+      if (req.method === 'OPTIONS') {
+        res.status(204).end();
+        return;
+      }
+    }
+    next();
+  });
   app.use(express.json({ limit: '512kb' }));
 
   type AuthedRequest = express.Request & { authUid: string };
