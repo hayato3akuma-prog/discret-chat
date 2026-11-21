@@ -164,6 +164,16 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidHiddenThread(data) {
+      return data.keys().hasAll(['threadId', 'hiddenAtMs', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['threadId', 'hiddenAtMs', 'createdAt', 'updatedAt'])
+        && isValidId(data.threadId)
+        && data.hiddenAtMs is number
+        && data.hiddenAtMs >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     function isValidSearchBucket(data) {
       return data.keys().hasAll(['prefix', 'userIds', 'updatedAt'])
         && data.keys().hasOnly(['prefix', 'userIds', 'updatedAt'])
@@ -398,6 +408,37 @@ service cloud.firestore {
         allow delete: if isVerifiedUser()
           && isValidShortId(userId)
           && isValidShortId(targetUserId)
+          && isOwner(userId);
+      }
+
+      match /hiddenThreads/{threadId} {
+        allow get: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidId(threadId)
+          && isOwner(userId);
+        allow list: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isOwner(userId);
+        allow create: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidId(threadId)
+          && isOwner(userId)
+          && isValidHiddenThread(incoming())
+          && incoming().threadId == threadId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidId(threadId)
+          && isOwner(userId)
+          && isValidHiddenThread(incoming())
+          && incoming().threadId == existing().threadId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['hiddenAtMs', 'updatedAt']);
+        allow delete: if isVerifiedUser()
+          && isValidShortId(userId)
+          && isValidId(threadId)
           && isOwner(userId);
       }
     }

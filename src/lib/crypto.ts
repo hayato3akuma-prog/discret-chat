@@ -21,6 +21,34 @@ function sanitizeReplyReference(raw: unknown): ReplyReference | undefined {
 function sanitizeAttachment(raw: unknown): ChatAttachment | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const a = raw as Record<string, unknown>;
+  if (a.kind === 'audio') {
+    if (
+      typeof a.dataUrl !== 'string' ||
+      !a.dataUrl.startsWith('data:audio/') ||
+      a.dataUrl.length > 235_000
+    ) {
+      return undefined;
+    }
+    const mimeType =
+      typeof a.mimeType === 'string' && a.mimeType.startsWith('audio/')
+        ? a.mimeType.slice(0, 64)
+        : 'audio/webm';
+    const durationSec =
+      typeof a.durationSec === 'number' && Number.isFinite(a.durationSec)
+        ? Math.max(0, Math.min(180, Math.round(a.durationSec)))
+        : undefined;
+    return {
+      kind: 'audio',
+      dataUrl: a.dataUrl,
+      mimeType,
+      ...(durationSec !== undefined ? { durationSec } : {}),
+      ...(a.voiceMasked === true ? { voiceMasked: true } : {}),
+      ...(typeof a.name === 'string' && a.name.trim()
+        ? { name: a.name.trim().slice(0, 64) }
+        : {}),
+    };
+  }
+
   if (a.kind !== 'image') return undefined;
   if (
     typeof a.dataUrl !== 'string' ||
@@ -428,6 +456,8 @@ export async function encryptAndSignMessage(params: {
   plaintext: string;
   replyTo?: ReplyReference;
   attachment?: ChatAttachment;
+  invisibleInk?: boolean;
+  unlockAt?: number | null;
   timestamp: number;
   myEcdhPrivateKey: CryptoKey;
   myEcdsaPrivateKey: CryptoKey;
@@ -446,11 +476,20 @@ export async function encryptAndSignMessage(params: {
 
   const replyTo = sanitizeReplyReference(params.replyTo);
   const attachment = sanitizeAttachment(params.attachment);
+  const unlockAt =
+    typeof params.unlockAt === 'number' &&
+    Number.isFinite(params.unlockAt) &&
+    params.unlockAt > params.timestamp
+      ? Math.round(params.unlockAt)
+      : null;
+
   const payload = JSON.stringify({
     text: params.plaintext,
     ...(replyTo ? { replyTo } : {}),
     ...(attachment ? { attachment } : {}),
-    v: attachment ? 3 : replyTo ? 2 : 1,
+    ...(params.invisibleInk ? { invisibleInk: true } : {}),
+    ...(unlockAt ? { unlockAt } : {}),
+    v: attachment || params.invisibleInk || unlockAt ? 4 : replyTo ? 2 : 1,
     ts: params.timestamp,
   });
 
@@ -494,6 +533,8 @@ export async function decryptAndVerifyMessage(params: {
   text: string;
   replyTo?: ReplyReference;
   attachment?: ChatAttachment;
+  invisibleInk?: boolean;
+  unlockAt?: number | null;
   verified: boolean;
   error?: boolean;
 }> {
@@ -514,6 +555,8 @@ export async function decryptAndVerifyMessage(params: {
       text: string;
       replyTo?: unknown;
       attachment?: unknown;
+      invisibleInk?: unknown;
+      unlockAt?: unknown;
     };
 
     let verified = false;
@@ -540,6 +583,11 @@ export async function decryptAndVerifyMessage(params: {
       text: typeof parsed.text === 'string' ? parsed.text : '',
       replyTo: sanitizeReplyReference(parsed.replyTo),
       attachment: sanitizeAttachment(parsed.attachment),
+      invisibleInk: parsed.invisibleInk === true,
+      unlockAt:
+        typeof parsed.unlockAt === 'number' && Number.isFinite(parsed.unlockAt)
+          ? parsed.unlockAt
+          : null,
       verified,
     };
   } catch {
@@ -644,6 +692,8 @@ export async function encryptAndSignGroupMessage(params: {
   plaintext: string;
   replyTo?: ReplyReference;
   attachment?: ChatAttachment;
+  invisibleInk?: boolean;
+  unlockAt?: number | null;
   timestamp: number;
   groupAesKey: CryptoKey;
   myEcdsaPrivateKey: CryptoKey;
@@ -654,11 +704,20 @@ export async function encryptAndSignGroupMessage(params: {
 
   const replyTo = sanitizeReplyReference(params.replyTo);
   const attachment = sanitizeAttachment(params.attachment);
+  const unlockAt =
+    typeof params.unlockAt === 'number' &&
+    Number.isFinite(params.unlockAt) &&
+    params.unlockAt > params.timestamp
+      ? Math.round(params.unlockAt)
+      : null;
+
   const payload = JSON.stringify({
     text: params.plaintext,
     ...(replyTo ? { replyTo } : {}),
     ...(attachment ? { attachment } : {}),
-    v: attachment ? 3 : replyTo ? 2 : 1,
+    ...(params.invisibleInk ? { invisibleInk: true } : {}),
+    ...(unlockAt ? { unlockAt } : {}),
+    v: attachment || params.invisibleInk || unlockAt ? 4 : replyTo ? 2 : 1,
     ts: params.timestamp,
   });
 
@@ -699,6 +758,8 @@ export async function decryptAndVerifyGroupMessage(params: {
   text: string;
   replyTo?: ReplyReference;
   attachment?: ChatAttachment;
+  invisibleInk?: boolean;
+  unlockAt?: number | null;
   verified: boolean;
   error?: boolean;
 }> {
@@ -713,6 +774,8 @@ export async function decryptAndVerifyGroupMessage(params: {
       text: string;
       replyTo?: unknown;
       attachment?: unknown;
+      invisibleInk?: unknown;
+      unlockAt?: unknown;
     };
 
     let verified = false;
@@ -741,6 +804,11 @@ export async function decryptAndVerifyGroupMessage(params: {
       text: typeof parsed.text === 'string' ? parsed.text : '',
       replyTo: sanitizeReplyReference(parsed.replyTo),
       attachment: sanitizeAttachment(parsed.attachment),
+      invisibleInk: parsed.invisibleInk === true,
+      unlockAt:
+        typeof parsed.unlockAt === 'number' && Number.isFinite(parsed.unlockAt)
+          ? parsed.unlockAt
+          : null,
       verified,
     };
   } catch {

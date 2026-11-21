@@ -5,24 +5,31 @@ import {
   Ban,
   Bell,
   BellRing,
+  Calculator,
   Check,
   CheckCheck,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
   Copy,
   Download,
   Eye,
+  EyeOff,
+  Hourglass,
   ImagePlus,
   Loader2,
   Lock,
   MessageSquare,
+  Mic,
   MoreHorizontal,
+  Palette,
   Phone,
   Plus,
   Reply,
   Search,
   Send,
+  Shield,
   ShieldCheck,
   ShieldOff,
   Square,
@@ -37,10 +44,12 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
+import { formatAudioDuration, prepareVoiceAttachment } from '../lib/audioUtils';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { type CallSignalPayload, useWebRTCCall } from '../hooks/useWebRTCCall';
+import { getAppThemeDefinition, useAppTheme } from '../lib/appTheme';
 import { getBubbleClassNames, getMessageTextSizeClass } from '../lib/bubbleTheme';
 import { getFreshFirebaseIdToken } from '../lib/firebase';
 import { prepareChatMediaDataUrl } from '../lib/imageUtils';
@@ -63,6 +72,7 @@ import {
   dispatchPushNotification,
   fetchPublicProfile,
   getContactDisplayName,
+  hideThreadInFirestore,
   markConversationReadInFirestore,
   openConversationInFirestore,
   removeFriendInFirestore,
@@ -76,7 +86,9 @@ import {
   subscribeFriendsSnapshot,
   subscribeGroupMessages,
   subscribeGroups,
+  subscribeHiddenThreads,
   unblockUserInFirestore,
+  unhideThreadInFirestore,
 } from '../lib/firestoreStore';
 import type {
   ChatAttachment,
@@ -95,6 +107,7 @@ import type {
 } from '../types';
 import { AppInstallModal } from './AppInstallModal';
 import { CallOverlay } from './CallOverlay';
+import { CamouflageScreen, normalizeCamouflageCode } from './CamouflageScreen';
 import { CreateGroupModal } from './CreateGroupModal';
 import { FriendsPanel } from './FriendsModal';
 import { GroupAvatar } from './GroupAvatar';
@@ -106,8 +119,9 @@ import { ProfileBanner } from './ProfileBanner';
 import { ProfileModal } from './ProfileModal';
 import { SecurityModal } from './SecurityModal';
 import { ThemeBackdrop } from './ThemeBackdrop';
-import { ThemeSwitcherButton } from './ThemePicker';
+import { ThemeGrid } from './ThemePicker';
 import { UserAvatar } from './UserAvatar';
+import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 
 interface ChatWorkspaceProps {
   session: UnlockedSession;
@@ -142,13 +156,28 @@ const EPHEMERAL_OPTIONS: { value: EphemeralDuration; label: string }[] = [
 
 const GLASS_PREF_KEY = 'discret_glass_intensity_v1';
 const MSG_TEXT_SIZE_PREF_KEY = 'discret_msg_text_size_v1';
+const CAMOUFLAGE_CODE_PREF_KEY = 'hoi_camouflage_code_v1';
 
 function formatMessagePreviewText(
   text: string,
-  attachment?: ChatAttachment
+  attachment?: ChatAttachment,
+  invisibleInk?: boolean,
+  unlockAt?: number | null
 ): string {
+  if (unlockAt && unlockAt > Date.now()) {
+    return `Capsule temporelle · ${formatTime(unlockAt)}`;
+  }
+  if (invisibleInk) {
+    return 'Message à encre invisible';
+  }
   const clean = text.trim();
   if (attachment) {
+    if (attachment.kind === 'audio') {
+      const tag = attachment.voiceMasked
+        ? 'Vocal anonymisé'
+        : 'Message vocal';
+      return clean ? `${tag} · ${clean}` : tag;
+    }
     const tag = attachment.mimeType === 'image/gif' ? 'GIF animé' : 'Image';
     return clean ? `${tag} · ${clean}` : tag;
   }
@@ -160,6 +189,43 @@ function formatTime(ts: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatUnlockCountdown(unlockAt: number, now: number): string {
+  const diffSec = Math.max(0, Math.ceil((unlockAt - now) / 1000));
+  if (diffSec < 60) return `${diffSec}s`;
+  const mins = Math.floor(diffSec / 60);
+  const secs = diffSec % 60;
+  if (mins < 60) return `${mins}m ${String(secs).padStart(2, '0')}s`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  if (hours < 24) return `${hours}h ${String(remMins).padStart(2, '0')}m`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return `${days}j ${remHours}h`;
+}
+
+function formatUnlockDateLabel(unlockAt: number): string {
+  const d = new Date(unlockAt);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const timeStr = formatTime(unlockAt);
+  if (sameDay) return `Aujourd’hui à ${timeStr}`;
+  return `${d.toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'short',
+  })} à ${timeStr}`;
+}
+
+function toDatetimeLocalValue(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
 }
 
 function getDayKey(ts: number): string {
@@ -193,6 +259,32 @@ function formatRemaining(expiresAt: number, now: number): string {
   return `${Math.ceil(diffSec / 3600)}h`;
 }
 
+function getDmHiddenKey(peerId: string): string {
+  return `dm_${peerId}`;
+}
+
+function getGroupHiddenKey(groupId: string): string {
+  return `group_${groupId}`;
+}
+
+function isDmConversationHidden(
+  conv: { peer: PublicUser; lastTimestamp: number | null },
+  hiddenMap: Record<string, number>
+): boolean {
+  const hiddenAt = hiddenMap[getDmHiddenKey(conv.peer.id)];
+  if (hiddenAt === undefined) return false;
+  return conv.lastTimestamp === null || conv.lastTimestamp <= hiddenAt;
+}
+
+function isGroupConversationHidden(
+  sg: { group: GroupInfo; lastTimestamp: number | null },
+  hiddenMap: Record<string, number>
+): boolean {
+  const hiddenAt = hiddenMap[getGroupHiddenKey(sg.group.id)];
+  if (hiddenAt === undefined) return false;
+  return sg.lastTimestamp === null || sg.lastTimestamp <= hiddenAt;
+}
+
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   session,
   onUpdateUser,
@@ -216,9 +308,46 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [sidebarTab, setSidebarTab] = useState<'all' | 'direct' | 'groups' | 'friends'>('all');
   const [ephemeralDuration, setEphemeralDuration] = useState<EphemeralDuration>(0);
   const [ephemeralMenuOpen, setEphemeralMenuOpen] = useState(false);
+  const [invisibleInk, setInvisibleInk] = useState(false);
+  const [unlockAt, setUnlockAt] = useState<number | null>(null);
+  const [customUnlockLocal, setCustomUnlockLocal] = useState('');
+  const [revealedInkIds, setRevealedInkIds] = useState<Record<string, boolean>>({});
+  const [shoulderShield, setShoulderShield] = useState(false);
+  const [camouflageMode, setCamouflageMode] = useState(false);
+  const [camouflageCode, setCamouflageCode] = useState<string>(() => {
+    try {
+      const saved = window.localStorage.getItem(CAMOUFLAGE_CODE_PREF_KEY);
+      const clean = saved ? normalizeCamouflageCode(saved) : '';
+      if (clean.length >= 3) return clean;
+    } catch {
+      // Ignore storage errors
+    }
+    return '1337';
+  });
+  const [camouflageConfigOpen, setCamouflageConfigOpen] = useState(false);
+  const [camouflageCodeDraft, setCamouflageCodeDraft] = useState('');
+  const [camouflageCodeError, setCamouflageCodeError] = useState<string | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingSec, setRecordingSec] = useState(0);
+  const [voiceMaskEnabled, setVoiceMaskEnabled] = useState(false);
+  const [processingVoice, setProcessingVoice] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [utilityMenuOpen, setUtilityMenuOpen] = useState(false);
+  const [utilityThemeExpanded, setUtilityThemeExpanded] = useState(false);
   const [chatOptionsMenuOpen, setChatOptionsMenuOpen] = useState(false);
   const [inspectorMode, setInspectorMode] = useState(false);
+  const [appTheme, setAppTheme] = useAppTheme();
+  const currentAppTheme = getAppThemeDefinition(appTheme);
+
+  const [hiddenThreads, setHiddenThreads] = useState<Record<string, number>>({});
+  const [pendingDeleteThread, setPendingDeleteThread] = useState<{
+    threadKey: string;
+    label: string;
+    kind: 'dm' | 'group';
+    targetId: string;
+    lastTimestamp: number | null;
+  } | null>(null);
+  const [deletingThread, setDeletingThread] = useState(false);
 
   const [glassIntensity, setGlassIntensity] = useState<GlassIntensity>(() => {
     try {
@@ -321,9 +450,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const knownMsgIdsRef = useRef<Set<string>>(new Set());
   const animatedNewMsgIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedInitialBatchRef = useRef<boolean>(false);
+  const hiddenThreadsRef = useRef<Record<string, number>>({});
+  const hiddenThreadsLoadedRef = useRef<boolean>(false);
+  const didAutoSelectInitialRef = useRef<boolean>(false);
+  const inkTimersRef = useRef<Record<string, number>>({});
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<number | null>(null);
+  const recordStartRef = useRef<number>(0);
+  const voiceActionRef = useRef<'send' | 'cancel'>('cancel');
+  const voiceMaskRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (!newMenuOpen && !chatOptionsMenuOpen) return;
+    voiceMaskRef.current = voiceMaskEnabled;
+  }, [voiceMaskEnabled]);
+
+  useEffect(() => {
+    if (!newMenuOpen && !chatOptionsMenuOpen && !utilityMenuOpen && !pendingDeleteThread) return;
     const handlePointerDown = (e: MouseEvent) => {
       const target = e.target as Node;
       if (newMenuOpen && newMenuRef.current && !newMenuRef.current.contains(target)) {
@@ -341,6 +485,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       if (e.key === 'Escape') {
         setNewMenuOpen(false);
         setChatOptionsMenuOpen(false);
+        setUtilityMenuOpen(false);
+        setPendingDeleteThread(null);
       }
     };
     window.addEventListener('mousedown', handlePointerDown);
@@ -349,7 +495,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       window.removeEventListener('mousedown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [newMenuOpen, chatOptionsMenuOpen]);
+  }, [newMenuOpen, chatOptionsMenuOpen, utilityMenuOpen, pendingDeleteThread]);
 
   useEffect(() => {
     activeTargetRef.current = activeTarget;
@@ -446,10 +592,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   }
 
-  // Tick every second when ephemeral messages exist
+  // Tick every second when ephemeral messages or locked time capsules exist
   useEffect(() => {
-    const hasEphemeral = messages.some((m) => m.expiresAt !== null);
-    if (!hasEphemeral) return;
+    const nowInit = Date.now();
+    const hasTimed = messages.some(
+      (m) => m.expiresAt !== null || (m.unlockAt != null && m.unlockAt > nowInit)
+    );
+    if (!hasTimed) return;
     const interval = window.setInterval(() => {
       const now = Date.now();
       setNowTick(now);
@@ -459,6 +608,45 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }, 1000);
     return () => window.clearInterval(interval);
   }, [messages]);
+
+  const revealInkMessage = useCallback((msgId: string) => {
+    if (inkTimersRef.current[msgId]) {
+      window.clearTimeout(inkTimersRef.current[msgId]);
+      delete inkTimersRef.current[msgId];
+    }
+    setRevealedInkIds((prev) => {
+      if (prev[msgId]) {
+        const next = { ...prev };
+        delete next[msgId];
+        return next;
+      }
+      inkTimersRef.current[msgId] = window.setTimeout(() => {
+        delete inkTimersRef.current[msgId];
+        setRevealedInkIds((curr) => {
+          if (!curr[msgId]) return curr;
+          const next = { ...curr };
+          delete next[msgId];
+          return next;
+        });
+      }, 8000);
+      return { ...prev, [msgId]: true };
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(inkTimersRef.current).forEach((t) => window.clearTimeout(t));
+      inkTimersRef.current = {};
+      if (recordTimerRef.current) {
+        window.clearInterval(recordTimerRef.current);
+        recordTimerRef.current = null;
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((tr) => tr.stop());
+        mediaStreamRef.current = null;
+      }
+    };
+  }, []);
 
   const getGroupAesKey = useCallback(
     async (group: GroupInfo): Promise<CryptoKey | null> => {
@@ -528,6 +716,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         text: result.text,
         replyTo: result.replyTo,
         attachment: result.attachment,
+        invisibleInk: result.invisibleInk,
+        unlockAt: result.unlockAt,
         timestamp: env.timestamp,
         expiresAt: env.expiresAt,
         readAt: env.readAt,
@@ -593,6 +783,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         text: result.text,
         replyTo: result.replyTo,
         attachment: result.attachment,
+        invisibleInk: result.invisibleInk,
+        unlockAt: result.unlockAt,
         timestamp: env.timestamp,
         expiresAt: env.expiresAt,
         readAt: null,
@@ -621,15 +813,48 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     [session.user.id]
   );
 
-  // Real-time Firestore subscriptions for conversations, groups & friends
+  // Real-time Firestore subscriptions for conversations, groups, friends & hidden threads
   useEffect(() => {
+    hiddenThreadsLoadedRef.current = false;
+    didAutoSelectInitialRef.current = false;
+
+    const tryInitialAutoSelect = (items: SidebarConversation[]) => {
+      if (
+        didAutoSelectInitialRef.current ||
+        activeTargetRef.current ||
+        !hiddenThreadsLoadedRef.current ||
+        items.length === 0
+      ) {
+        return;
+      }
+      didAutoSelectInitialRef.current = true;
+      const firstVisible = items.find(
+        (c) => !isDmConversationHidden(c, hiddenThreadsRef.current)
+      );
+      if (firstVisible) {
+        setActiveTarget({ kind: 'dm', peer: firstVisible.peer });
+      }
+    };
+
+    const unsubHidden = subscribeHiddenThreads(session.user.id, (hiddenMap) => {
+      hiddenThreadsRef.current = hiddenMap;
+      hiddenThreadsLoadedRef.current = true;
+      setHiddenThreads(hiddenMap);
+      tryInitialAutoSelect(conversationsRef.current);
+    });
+
     const unsubConvs = subscribeConversations(session.user.id, (summaries) => {
       void Promise.all(
         summaries.map(async (conv) => {
           let preview: string | null = null;
           if (conv.lastMessage) {
             const dec = await decryptEnvelope(conv.lastMessage, conv.peer);
-            preview = formatMessagePreviewText(dec.text, dec.attachment);
+            preview = formatMessagePreviewText(
+              dec.text,
+              dec.attachment,
+              dec.invisibleInk,
+              dec.unlockAt
+            );
           }
           return {
             peer: conv.peer,
@@ -641,9 +866,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       ).then((items) => {
         setConversations(items);
         setLoadingConversations(false);
-        if (!activeTargetRef.current && items.length > 0) {
-          setActiveTarget({ kind: 'dm', peer: items[0].peer });
-        }
+        tryInitialAutoSelect(items);
       });
     });
 
@@ -659,7 +882,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 : dec.sender
                   ? `${getContactDisplayName(dec.sender, friendAliasesRef.current)} : `
                   : '';
-            preview = `${prefix}${formatMessagePreviewText(dec.text, dec.attachment)}`;
+            preview = `${prefix}${formatMessagePreviewText(
+              dec.text,
+              dec.attachment,
+              dec.invisibleInk,
+              dec.unlockAt
+            )}`;
           }
           return {
             group: g,
@@ -693,6 +921,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     });
 
     return () => {
+      unsubHidden();
       unsubConvs();
       unsubGroups();
       unsubFriends();
@@ -723,7 +952,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     if (topEl) ro.observe(topEl);
     if (bottomEl) ro.observe(bottomEl);
     return () => ro.disconnect();
-  }, [activeTargetId, inChatSearchOpen, tts.autoRead, tts.speakingMessageId, replyingTo, pendingAttachment]);
+  }, [
+    activeTargetId,
+    inChatSearchOpen,
+    tts.autoRead,
+    tts.speakingMessageId,
+    replyingTo,
+    pendingAttachment,
+    invisibleInk,
+    unlockAt,
+    ephemeralDuration,
+    isRecordingVoice,
+    ephemeralMenuOpen,
+  ]);
 
   // Real-time Firestore subscription for active thread messages
   useEffect(() => {
@@ -741,6 +982,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     setShowScrollToBottom(false);
     setUnreadBelowCount(0);
     ttsStopRef.current();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      voiceActionRef.current = 'cancel';
+      mediaRecorderRef.current.stop();
+    }
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    setIsRecordingVoice(false);
+    setRecordingSec(0);
 
     const target = activeTargetRef.current;
     if (!target) {
@@ -781,10 +1032,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         ttsAutoReadRef.current &&
         callPhaseRef.current === 'idle'
       ) {
+        const nowCheck = Date.now();
         const incomingSpeakable = newlyArrived.filter(
           (m) =>
             m.fromId !== session.user.id &&
             !m.decryptionError &&
+            !m.invisibleInk &&
+            (!m.unlockAt || m.unlockAt <= nowCheck) &&
             m.text.trim().length > 0
         );
         const latest = incomingSpeakable[incomingSpeakable.length - 1];
@@ -877,9 +1131,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     const q = inChatSearchQuery.trim().toLowerCase();
     if (!q) return [];
     return messages
-      .filter((m) => !m.decryptionError && m.text.toLowerCase().includes(q))
+      .filter(
+        (m) =>
+          !m.decryptionError &&
+          !(m.unlockAt && nowTick < m.unlockAt) &&
+          !(m.invisibleInk && !revealedInkIds[m.id]) &&
+          m.text.toLowerCase().includes(q)
+      )
       .map((m) => m.id);
-  }, [inChatSearchQuery, messages]);
+  }, [inChatSearchQuery, messages, nowTick, revealedInkIds]);
 
   useEffect(() => {
     if (searchMatches.length === 0) {
@@ -892,10 +1152,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   }, [searchMatches, activeSearchMatchIdx]);
 
-  // Global keyboard shortcuts (Ctrl/Cmd+K for sidebar search, Ctrl/Cmd+F for in-chat search, Esc to close search/reply)
+  // Global keyboard shortcuts (Ctrl/Cmd+K, Ctrl/Cmd+F, Ctrl/Cmd+Shift+H camouflage, Alt+V shoulder shield, Esc)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (camouflageMode) return;
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        ttsStopRef.current();
+        setUtilityMenuOpen(false);
+        setCamouflageMode(true);
+      } else if (e.altKey && !e.metaKey && !e.ctrlKey && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        setShoulderShield((v) => !v);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         sidebarSearchRef.current?.focus();
       } else if (
@@ -919,7 +1188,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [inChatSearchOpen, replyingTo, lightboxMedia]);
+  }, [inChatSearchOpen, replyingTo, lightboxMedia, camouflageMode]);
 
   // Real-time WebSocket connection for WebRTC call signaling & live typing indicators
   useEffect(() => {
@@ -1262,12 +1531,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   }
 
-  async function handleSendMessage(e?: React.FormEvent) {
-    e?.preventDefault();
-    if (!activeTarget || sending || preparingAttachment) return;
-    const trimmed = composerText.trim();
-    const currentAttachment = pendingAttachment;
-    if (!trimmed && !currentAttachment) return;
+  async function sendEncryptedMessagePayload(params: {
+    trimmedText: string;
+    attachment: ChatAttachment | null;
+  }) {
+    if (!activeTarget) return;
+    const { trimmedText, attachment: currentAttachment } = params;
+    if (!trimmedText && !currentAttachment) return;
 
     setSending(true);
     setSendError(null);
@@ -1276,13 +1546,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     const id = window.crypto.randomUUID();
     const timestamp = Date.now();
     const currentReply = replyingTo;
+    const currentInvisibleInk = invisibleInk;
+    const currentUnlockAt =
+      unlockAt && unlockAt > timestamp + 5_000 ? unlockAt : null;
+
     const replyExcerpt = currentReply
       ? currentReply.text.replace(/\s+/g, ' ').trim().slice(0, 140) ||
-        (currentReply.attachment?.mimeType === 'image/gif'
-          ? 'GIF animé'
-          : currentReply.attachment
-            ? 'Image'
-            : '')
+        (currentReply.attachment?.kind === 'audio'
+          ? 'Message vocal'
+          : currentReply.attachment?.mimeType === 'image/gif'
+            ? 'GIF animé'
+            : currentReply.attachment
+              ? 'Image'
+              : '')
       : '';
     const replyRef: ReplyReference | undefined = currentReply
       ? {
@@ -1308,9 +1584,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           id,
           fromId: session.user.id,
           toId: peer.id,
-          plaintext: trimmed,
+          plaintext: trimmedText,
           replyTo: replyRef,
           attachment: currentAttachment ?? undefined,
+          invisibleInk: currentInvisibleInk || undefined,
+          unlockAt: currentUnlockAt,
           timestamp,
           myEcdhPrivateKey: session.ecdhPrivateKey,
           myEcdsaPrivateKey: session.ecdsaPrivateKey,
@@ -1322,9 +1600,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           conversationId: encrypted.conversationId,
           fromId: session.user.id,
           toId: peer.id,
-          text: trimmed,
+          text: trimmedText,
           replyTo: replyRef,
           attachment: currentAttachment ?? undefined,
+          invisibleInk: currentInvisibleInk || undefined,
+          unlockAt: currentUnlockAt,
           timestamp,
           expiresAt:
             ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
@@ -1340,9 +1620,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         setMessages((prev) =>
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
-        setComposerText('');
-        setPendingAttachment(null);
+        if (currentAttachment?.kind !== 'audio') {
+          setComposerText('');
+          setPendingAttachment(null);
+        }
         setReplyingTo(null);
+        setInvisibleInk(false);
+        setUnlockAt(null);
+        setCustomUnlockLocal('');
+        setEphemeralMenuOpen(false);
 
         const savedEnv = await sendDirectMessageInFirestore({
           id,
@@ -1388,9 +1674,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           id,
           groupId: group.id,
           fromId: session.user.id,
-          plaintext: trimmed,
+          plaintext: trimmedText,
           replyTo: replyRef,
           attachment: currentAttachment ?? undefined,
+          invisibleInk: currentInvisibleInk || undefined,
+          unlockAt: currentUnlockAt,
           timestamp,
           groupAesKey: groupKey,
           myEcdsaPrivateKey: session.ecdsaPrivateKey,
@@ -1403,9 +1691,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           toId: group.id,
           groupId: group.id,
           sender: session.user,
-          text: trimmed,
+          text: trimmedText,
           replyTo: replyRef,
           attachment: currentAttachment ?? undefined,
+          invisibleInk: currentInvisibleInk || undefined,
+          unlockAt: currentUnlockAt,
           timestamp,
           expiresAt:
             ephemeralDuration > 0 ? Date.now() + ephemeralDuration * 1000 : null,
@@ -1421,9 +1711,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         setMessages((prev) =>
           prev.some((m) => m.id === id) ? prev : [...prev, optimistic]
         );
-        setComposerText('');
-        setPendingAttachment(null);
+        if (currentAttachment?.kind !== 'audio') {
+          setComposerText('');
+          setPendingAttachment(null);
+        }
         setReplyingTo(null);
+        setInvisibleInk(false);
+        setUnlockAt(null);
+        setCustomUnlockLocal('');
+        setEphemeralMenuOpen(false);
 
         const savedGroupEnv = await sendGroupMessageInFirestore({
           id,
@@ -1464,14 +1760,157 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       }
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== id));
-      if (trimmed) setComposerText((prev) => (prev ? prev : trimmed));
-      if (currentAttachment) setPendingAttachment((prev) => prev ?? currentAttachment);
+      if (currentAttachment?.kind !== 'audio') {
+        if (trimmedText) setComposerText((prev) => (prev ? prev : trimmedText));
+        if (currentAttachment) setPendingAttachment((prev) => prev ?? currentAttachment);
+      }
       if (currentReply) {
         setReplyingTo((prev) => prev ?? currentReply);
       }
       setSendError(err instanceof Error ? err.message : "Erreur d'envoi.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleSendMessage(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!activeTarget || sending || preparingAttachment || processingVoice) return;
+    await sendEncryptedMessagePayload({
+      trimmedText: composerText.trim(),
+      attachment: pendingAttachment,
+    });
+  }
+
+  function stopVoiceResources() {
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  }
+
+  function cancelVoiceRecording() {
+    voiceActionRef.current = 'cancel';
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    } else {
+      stopVoiceResources();
+    }
+    setIsRecordingVoice(false);
+    setRecordingSec(0);
+  }
+
+  function finishAndSendVoiceRecording() {
+    if (!isRecordingVoice) return;
+    voiceActionRef.current = 'send';
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  }
+
+  async function startVoiceRecording() {
+    if (!activeTarget || sending || processingVoice || isRecordingVoice) return;
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setSendError('Enregistrement audio non supporté par ce navigateur.');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      setSendError('Enregistrement audio indisponible sur cet appareil.');
+      return;
+    }
+
+    setSendError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+      voiceActionRef.current = 'cancel';
+
+      const preferredTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus',
+      ];
+      const chosenType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t));
+      const recorder = chosenType
+        ? new MediaRecorder(stream, { mimeType: chosenType, audioBitsPerSecond: 32000 })
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current = recorder;
+      recordStartRef.current = Date.now();
+      setRecordingSec(0);
+      setIsRecordingVoice(true);
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          audioChunksRef.current.push(ev.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const action = voiceActionRef.current;
+        const durationSec = Math.max(
+          1,
+          Math.round((Date.now() - recordStartRef.current) / 1000)
+        );
+        const rawMime = recorder.mimeType || 'audio/webm';
+        const chunks = [...audioChunksRef.current];
+        audioChunksRef.current = [];
+        stopVoiceResources();
+        setIsRecordingVoice(false);
+        setRecordingSec(0);
+
+        if (action !== 'send' || chunks.length === 0) {
+          return;
+        }
+
+        setProcessingVoice(true);
+        try {
+          const blob = new Blob(chunks, { type: rawMime });
+          const voiceAttachment = await prepareVoiceAttachment({
+            blob,
+            durationSec,
+            maskVoice: voiceMaskRef.current,
+          });
+          await sendEncryptedMessagePayload({
+            trimmedText: '',
+            attachment: voiceAttachment,
+          });
+        } catch (err) {
+          setSendError(
+            err instanceof Error
+              ? err.message
+              : 'Impossible de chiffrer la note vocale.'
+          );
+        } finally {
+          setProcessingVoice(false);
+        }
+      };
+
+      recorder.start(250);
+      recordTimerRef.current = window.setInterval(() => {
+        const elapsed = Math.floor((Date.now() - recordStartRef.current) / 1000);
+        setRecordingSec(elapsed);
+        const maxDuration = voiceMaskRef.current ? 18 : 36;
+        if (elapsed >= maxDuration && recorder.state !== 'inactive') {
+          voiceActionRef.current = 'send';
+          recorder.stop();
+        }
+      }, 250);
+    } catch {
+      stopVoiceResources();
+      setIsRecordingVoice(false);
+      setSendError('Autorisez l’accès au microphone pour envoyer une note vocale.');
     }
   }
 
@@ -1507,6 +1946,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   }
 
   async function handleSelectPeer(peer: PublicUser) {
+    const threadKey = getDmHiddenKey(peer.id);
+    if (hiddenThreadsRef.current[threadKey] !== undefined) {
+      const nextHidden = { ...hiddenThreadsRef.current };
+      delete nextHidden[threadKey];
+      hiddenThreadsRef.current = nextHidden;
+      setHiddenThreads(nextHidden);
+      void unhideThreadInFirestore(session.user.id, threadKey);
+    }
     try {
       await openConversationInFirestore(session.user.id, peer.id);
     } catch {
@@ -1535,6 +1982,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   }
 
   function handleSelectGroup(group: GroupInfo) {
+    const threadKey = getGroupHiddenKey(group.id);
+    if (hiddenThreadsRef.current[threadKey] !== undefined) {
+      const nextHidden = { ...hiddenThreadsRef.current };
+      delete nextHidden[threadKey];
+      hiddenThreadsRef.current = nextHidden;
+      setHiddenThreads(nextHidden);
+      void unhideThreadInFirestore(session.user.id, threadKey);
+    }
     setActiveTarget({ kind: 'group', group });
     setMobileShowChat(true);
     setEphemeralMenuOpen(false);
@@ -1554,6 +2009,35 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         ...prev,
       ];
     });
+  }
+
+  async function handleConfirmDeleteThread() {
+    if (!pendingDeleteThread || deletingThread) return;
+    setDeletingThread(true);
+    const { threadKey, kind, targetId, lastTimestamp } = pendingDeleteThread;
+    const hiddenAtMs = Math.max(Date.now(), lastTimestamp ?? 0);
+
+    const nextHidden = { ...hiddenThreadsRef.current, [threadKey]: hiddenAtMs };
+    hiddenThreadsRef.current = nextHidden;
+    setHiddenThreads(nextHidden);
+
+    if (
+      (kind === 'dm' && activeTarget?.kind === 'dm' && activeTarget.peer.id === targetId) ||
+      (kind === 'group' && activeTarget?.kind === 'group' && activeTarget.group.id === targetId)
+    ) {
+      setActiveTarget(null);
+      setMobileShowChat(false);
+      setChatOptionsMenuOpen(false);
+    }
+
+    try {
+      await hideThreadInFirestore(session.user.id, threadKey, hiddenAtMs);
+    } catch {
+      // Snapshot listener restores authoritative state if write fails
+    } finally {
+      setDeletingThread(false);
+      setPendingDeleteThread(null);
+    }
   }
 
   type UnifiedSidebarItem =
@@ -1576,6 +2060,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
     if (sidebarTab === 'all' || sidebarTab === 'direct') {
       for (const conv of conversations) {
+        if (isDmConversationHidden(conv, hiddenThreads)) continue;
         const alias = friendAliases[conv.peer.id]?.toLowerCase() ?? '';
         if (
           !q ||
@@ -1595,6 +2080,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
     if (sidebarTab === 'all' || sidebarTab === 'groups') {
       for (const sg of groups) {
+        if (isGroupConversationHidden(sg, hiddenThreads)) continue;
         if (
           !q ||
           sg.group.name.toLowerCase().includes(q) ||
@@ -1611,11 +2097,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
 
     return list.sort((a, b) => b.sortTs - a.sortTs);
-  }, [conversations, groups, sidebarFilter, sidebarTab, session.user.id, friendAliases]);
+  }, [conversations, groups, hiddenThreads, sidebarFilter, sidebarTab, session.user.id, friendAliases]);
 
   const totalUnreadCount = useMemo(
-    () => conversations.reduce((sum, c) => sum + c.unreadCount, 0),
-    [conversations]
+    () =>
+      conversations.reduce(
+        (sum, c) => (isDmConversationHidden(c, hiddenThreads) ? sum : sum + c.unreadCount),
+        0
+      ),
+    [conversations, hiddenThreads]
   );
 
   const activePeer = activeTarget?.kind === 'dm' ? activeTarget.peer : null;
@@ -1792,43 +2282,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
           <div className="h-5 w-px bg-white/[0.1] mx-0.5" aria-hidden="true" />
 
-          <ThemeSwitcherButton
-            variant="icon"
-            align="right"
-            direction="down"
-            buttonClassName="h-9 w-9 rounded-xl"
-          />
-
-          <button
-            type="button"
-            onClick={() => setIsNotificationsModalOpen(true)}
-            title="Notifications push"
-            aria-label="Notifications push"
-            className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
-              push.isSubscribed && push.permission === 'granted'
-                ? 'glass-control border-emerald-400/30 text-emerald-400'
-                : 'glass-control text-zinc-300 hover:text-white'
-            }`}
-          >
-            {push.isSubscribed && push.permission === 'granted' ? (
-              <BellRing className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
-            ) : (
-              <Bell className="h-4 w-4" strokeWidth={1.75} />
-            )}
-          </button>
-
-          {!pwaInstall.isInstalled && (
-            <button
-              type="button"
-              onClick={() => void handleInstallTrigger()}
-              title="Installer HOI (Huawei, Android, iOS, PC)"
-              aria-label="Installer l'application HOI"
-              className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white cursor-pointer"
-            >
-              <Download className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          )}
-
           <button
             type="button"
             onClick={() => setIsProfileModalOpen(true)}
@@ -1843,12 +2296,21 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
           <button
             type="button"
-            onClick={handleLockSession}
-            title="Verrouiller la session"
-            aria-label="Verrouiller la session"
-            className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-300 hover:border-rose-400/30 transition-all cursor-pointer"
+            onClick={() => {
+              setUtilityThemeExpanded(false);
+              setUtilityMenuOpen((v) => !v);
+            }}
+            aria-expanded={utilityMenuOpen}
+            aria-haspopup="dialog"
+            title="Menu, thème et options"
+            aria-label="Menu, thème et options"
+            className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
+              utilityMenuOpen
+                ? 'glass-control-active text-white'
+                : 'glass-control text-zinc-300 hover:text-white'
+            }`}
           >
-            <Lock className="h-4 w-4" strokeWidth={1.75} />
+            <MoreHorizontal className="h-4 w-4" strokeWidth={1.85} />
           </button>
         </div>
       </header>
@@ -1879,49 +2341,23 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             </div>
           </button>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            {!pwaInstall.isInstalled && (
-              <button
-                type="button"
-                onClick={() => void handleInstallTrigger()}
-                title="Installer l'application (Huawei / Mobile)"
-                aria-label="Installer l'application"
-                className="glass-control h-10 w-10 flex items-center justify-center rounded-xl text-zinc-200 hover:text-white cursor-pointer"
-              >
-                <Download className="h-4 w-4" strokeWidth={1.75} />
-              </button>
-            )}
-            <ThemeSwitcherButton
-              variant="icon"
-              align="right"
-              direction="down"
-              buttonClassName="h-10 w-10 rounded-xl"
-            />
-            <button
-              type="button"
-              onClick={() => setIsNotificationsModalOpen(true)}
-              aria-label="Notifications push"
-              className={`h-10 w-10 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
-                push.isSubscribed && push.permission === 'granted'
-                  ? 'glass-control border-emerald-400/30 text-emerald-400'
-                  : 'glass-control text-zinc-300 hover:text-white'
-              }`}
-            >
-              {push.isSubscribed && push.permission === 'granted' ? (
-                <BellRing className="h-4 w-4 text-emerald-400" strokeWidth={1.75} />
-              ) : (
-                <Bell className="h-4 w-4" strokeWidth={1.75} />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handleLockSession}
-              aria-label="Verrouiller la session"
-              className="glass-control h-10 w-10 flex items-center justify-center rounded-xl text-zinc-300 hover:text-rose-300 cursor-pointer"
-            >
-              <Lock className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setUtilityThemeExpanded(false);
+              setUtilityMenuOpen((v) => !v);
+            }}
+            aria-expanded={utilityMenuOpen}
+            aria-haspopup="dialog"
+            aria-label="Menu, thème et options"
+            className={`h-10 w-10 flex items-center justify-center rounded-xl transition-all shrink-0 cursor-pointer ${
+              utilityMenuOpen
+                ? 'glass-control-active text-white'
+                : 'glass-control text-zinc-200 hover:text-white'
+            }`}
+          >
+            <MoreHorizontal className="h-4 w-4" strokeWidth={1.85} />
+          </button>
         </div>
 
         {/* Pane Header & Search */}
@@ -2049,59 +2485,86 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 const { conv } = item;
                 const isSelf = conv.peer.id === session.user.id;
                 const isSelected = activeTargetId === item.id;
+                const contactLabel = isSelf
+                  ? 'Notes chiffrées'
+                  : getContactDisplayName(conv.peer, friendAliases);
                 return (
-                  <button
+                  <div
                     key={item.id}
-                    type="button"
-                    onClick={() => handleSelectPeer(conv.peer)}
-                    className={`w-full min-h-[60px] flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
+                    className={`group flex items-center rounded-2xl border transition-all ${
                       isSelected
                         ? 'glass-control-active'
                         : 'border-transparent hover:bg-white/[0.045] hover:border-white/[0.07]'
                     }`}
                   >
-                    <UserAvatar
-                      user={conv.peer}
-                      isSelfVault={isSelf}
-                      size="md"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSelectPeer(conv.peer)}
+                      className="min-w-0 flex-1 min-h-[60px] flex items-center gap-3 pl-3 pr-1 py-2.5 text-left cursor-pointer rounded-l-2xl"
+                    >
+                      <UserAvatar
+                        user={conv.peer}
+                        isSelfVault={isSelf}
+                        size="md"
+                      />
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-sm font-medium text-white truncate">
-                          {isSelf
-                            ? 'Notes chiffrées'
-                            : getContactDisplayName(conv.peer, friendAliases)}
-                        </span>
-                        {conv.lastTimestamp && (
-                          <span className="font-mono text-[11px] text-zinc-500 tabular-nums shrink-0">
-                            {formatTime(conv.lastTimestamp)}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-sm font-medium text-white truncate">
+                            {contactLabel}
                           </span>
-                        )}
+                          {conv.lastTimestamp && (
+                            <span className="font-mono text-[11px] text-zinc-500 tabular-nums shrink-0">
+                              {formatTime(conv.lastTimestamp)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 flex items-center justify-between gap-2">
+                          {!isSelf && typingPeers[conv.peer.id] ? (
+                            <p className="text-xs font-medium text-emerald-300 truncate">
+                              Écrit...
+                            </p>
+                          ) : (
+                            <p
+                              className={`text-xs text-zinc-400 truncate ${
+                                shoulderShield ? 'shoulder-shield-blur' : ''
+                              }`}
+                            >
+                              {conv.lastMessagePreview ??
+                                (isSelf
+                                  ? 'Coffre-fort personnel'
+                                  : friendAliases[conv.peer.id]?.trim()
+                                    ? `${conv.peer.displayName} · ${conv.peer.handle}`
+                                    : conv.peer.bio || conv.peer.handle)}
+                            </p>
+                          )}
+                          {conv.unreadCount > 0 && (
+                            <span className="shrink-0 font-mono text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-400/30 px-1.5 py-0.5 rounded-md tabular-nums">
+                              {conv.unreadCount}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-0.5 flex items-center justify-between gap-2">
-                        {!isSelf && typingPeers[conv.peer.id] ? (
-                          <p className="text-xs font-medium text-emerald-300 truncate">
-                            Écrit...
-                          </p>
-                        ) : (
-                          <p className="text-xs text-zinc-400 truncate">
-                            {conv.lastMessagePreview ??
-                              (isSelf
-                                ? 'Coffre-fort personnel'
-                                : friendAliases[conv.peer.id]?.trim()
-                                  ? `${conv.peer.displayName} · ${conv.peer.handle}`
-                                  : conv.peer.bio || conv.peer.handle)}
-                          </p>
-                        )}
-                        {conv.unreadCount > 0 && (
-                          <span className="shrink-0 font-mono text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-400/30 px-1.5 py-0.5 rounded-md tabular-nums">
-                            {conv.unreadCount}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPendingDeleteThread({
+                          threadKey: getDmHiddenKey(conv.peer.id),
+                          label: contactLabel,
+                          kind: 'dm',
+                          targetId: conv.peer.id,
+                          lastTimestamp: conv.lastTimestamp,
+                        })
+                      }
+                      title="Supprimer de l’accueil"
+                      aria-label={`Supprimer la conversation ${contactLabel}`}
+                      className="mr-1.5 h-9 w-9 shrink-0 flex items-center justify-center rounded-xl text-zinc-500 opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 hover:text-rose-300 hover:bg-rose-500/15 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                  </div>
                 );
               }
 
@@ -2110,45 +2573,71 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               const groupTypingName = typingGroups[sg.group.id];
 
               return (
-                <button
+                <div
                   key={item.id}
-                  type="button"
-                  onClick={() => handleSelectGroup(sg.group)}
-                  className={`w-full min-h-[60px] flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-all cursor-pointer border ${
+                  className={`group flex items-center rounded-2xl border transition-all ${
                     isSelected
                       ? 'glass-control-active'
                       : 'border-transparent hover:bg-white/[0.045] hover:border-white/[0.07]'
                   }`}
                 >
-                  <GroupAvatar group={sg.group} size="md" />
+                  <button
+                    type="button"
+                    onClick={() => handleSelectGroup(sg.group)}
+                    className="min-w-0 flex-1 min-h-[60px] flex items-center gap-3 pl-3 pr-1 py-2.5 text-left cursor-pointer rounded-l-2xl"
+                  >
+                    <GroupAvatar group={sg.group} size="md" />
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-sm font-medium text-white truncate">
-                        {sg.group.name}
-                      </span>
-                      {sg.lastTimestamp && (
-                        <span className="font-mono text-[11px] text-zinc-500 tabular-nums shrink-0">
-                          {formatTime(sg.lastTimestamp)}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-medium text-white truncate">
+                          {sg.group.name}
                         </span>
-                      )}
+                        {sg.lastTimestamp && (
+                          <span className="font-mono text-[11px] text-zinc-500 tabular-nums shrink-0">
+                            {formatTime(sg.lastTimestamp)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2">
+                        {groupTypingName ? (
+                          <p className="text-xs font-medium text-emerald-300 truncate">
+                            {groupTypingName} écrit...
+                          </p>
+                        ) : (
+                          <p
+                            className={`text-xs text-zinc-400 truncate ${
+                              shoulderShield ? 'shoulder-shield-blur' : ''
+                            }`}
+                          >
+                            {sg.lastMessagePreview ??
+                              `${sg.group.members.length} membre${
+                                sg.group.members.length > 1 ? 's' : ''
+                              }${sg.group.description ? ` · ${sg.group.description}` : ''}`}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="mt-0.5 flex items-center justify-between gap-2">
-                      {groupTypingName ? (
-                        <p className="text-xs font-medium text-emerald-300 truncate">
-                          {groupTypingName} écrit...
-                        </p>
-                      ) : (
-                        <p className="text-xs text-zinc-400 truncate">
-                          {sg.lastMessagePreview ??
-                            `${sg.group.members.length} membre${
-                              sg.group.members.length > 1 ? 's' : ''
-                            }${sg.group.description ? ` · ${sg.group.description}` : ''}`}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </button>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPendingDeleteThread({
+                        threadKey: getGroupHiddenKey(sg.group.id),
+                        label: sg.group.name,
+                        kind: 'group',
+                        targetId: sg.group.id,
+                        lastTimestamp: sg.lastTimestamp,
+                      })
+                    }
+                    title="Supprimer de l’accueil"
+                    aria-label={`Supprimer le groupe ${sg.group.name} de l’accueil`}
+                    className="mr-1.5 h-9 w-9 shrink-0 flex items-center justify-center rounded-xl text-zinc-500 opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 hover:text-rose-300 hover:bg-rose-500/15 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  </button>
+                </div>
               );
             })
           )}
@@ -2526,6 +3015,45 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             <span>Voir le profil</span>
                           </button>
                         )}
+
+                        <div className="my-1 h-px bg-white/[0.08]" aria-hidden="true" />
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatOptionsMenuOpen(false);
+                            if (activePeer) {
+                              const currentConv = conversations.find(
+                                (c) => c.peer.id === activePeer.id
+                              );
+                              setPendingDeleteThread({
+                                threadKey: getDmHiddenKey(activePeer.id),
+                                label: isSelfSelected
+                                  ? 'Notes chiffrées'
+                                  : getContactDisplayName(activePeer, friendAliases),
+                                kind: 'dm',
+                                targetId: activePeer.id,
+                                lastTimestamp: currentConv?.lastTimestamp ?? null,
+                              });
+                            } else if (activeGroup) {
+                              const currentGroup = groups.find(
+                                (g) => g.group.id === activeGroup.id
+                              );
+                              setPendingDeleteThread({
+                                threadKey: getGroupHiddenKey(activeGroup.id),
+                                label: activeGroup.name,
+                                kind: 'group',
+                                targetId: activeGroup.id,
+                                lastTimestamp:
+                                  currentGroup?.lastTimestamp ?? activeGroup.createdAt,
+                              });
+                            }
+                          }}
+                          className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-rose-300 hover:bg-rose-500/15 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="h-4 w-4 shrink-0" />
+                          <span>Supprimer de l’accueil</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -2763,6 +3291,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       isSearchMatch &&
                       searchMatches[activeSearchMatchIdx] === msg.id;
                     const isHighlighted = highlightedMsgId === msg.id;
+                    const isTimeLocked = Boolean(
+                      msg.unlockAt && nowTick < msg.unlockAt && !msg.decryptionError
+                    );
+                    const isInkVeiled = Boolean(
+                      !isTimeLocked &&
+                        msg.invisibleInk &&
+                        !revealedInkIds[msg.id] &&
+                        !msg.decryptionError
+                    );
 
                     return (
                       <React.Fragment key={msg.id}>
@@ -2823,50 +3360,103 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                   : ''
                             }`}
                           >
-                            {msg.replyTo && (
+                            {isTimeLocked ? (
+                              <div className="flex items-center gap-3 py-1">
+                                <span className="h-9 w-9 rounded-xl border border-amber-400/30 bg-amber-500/15 text-amber-300 flex items-center justify-center shrink-0">
+                                  <Hourglass className="h-4 w-4 animate-pulse" />
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-white">
+                                    Capsule temporelle verrouillée
+                                  </p>
+                                  <p className="mt-0.5 font-mono text-[11px] text-amber-300 tabular-nums">
+                                    Déverrouillage dans{' '}
+                                    {formatUnlockCountdown(msg.unlockAt!, nowTick)}
+                                  </p>
+                                  <p className="text-[11px] text-zinc-400">
+                                    {formatUnlockDateLabel(msg.unlockAt!)}
+                                  </p>
+                                </div>
+                              </div>
+                            ) : isInkVeiled ? (
                               <button
                                 type="button"
-                                onClick={() => scrollToMessage(msg.replyTo!.id)}
-                                className="mb-2 block w-full text-left rounded-xl bg-black/25 backdrop-blur-md border border-white/[0.11] px-3 py-1.5 hover:bg-black/40 transition-colors cursor-pointer"
+                                onClick={() => revealInkMessage(msg.id)}
+                                className="invisible-ink-shimmer flex w-full items-center gap-2.5 rounded-xl border border-white/15 px-3.5 py-2.5 text-left transition-transform active:scale-[0.99] cursor-pointer"
                               >
-                                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300 truncate">
-                                  <Reply className="h-3 w-3 shrink-0 opacity-80" />
-                                  <span className="truncate">{msg.replyTo.senderName}</span>
-                                </span>
-                                <span className="block text-xs text-zinc-300 truncate mt-0.5">
-                                  {msg.replyTo.excerpt}
-                                </span>
-                              </button>
-                            )}
-
-                            {msg.attachment && (
-                              <button
-                                type="button"
-                                onClick={() => setLightboxMedia(msg.attachment!)}
-                                title="Agrandir l’image"
-                                className={`group/media relative block overflow-hidden rounded-xl border border-white/[0.1] bg-black/35 cursor-zoom-in ${
-                                  msg.text.trim() ? 'mb-2' : ''
-                                }`}
-                              >
-                                <img
-                                  src={msg.attachment.dataUrl}
-                                  alt={msg.attachment.name || 'Média chiffré'}
-                                  className="max-h-72 w-auto max-w-full object-contain block"
-                                />
-                                {msg.attachment.mimeType === 'image/gif' && (
-                                  <span className="absolute top-2 left-2 rounded-md bg-black/70 backdrop-blur-sm border border-white/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
-                                    GIF
+                                <EyeOff className="h-4 w-4 text-zinc-200 shrink-0" />
+                                <div className="min-w-0">
+                                  <span className="block text-xs font-medium text-white">
+                                    Encre invisible
                                   </span>
-                                )}
+                                  <span className="block text-[11px] text-zinc-300">
+                                    Toucher pour révéler 8 s
+                                  </span>
+                                </div>
                               </button>
-                            )}
-
-                            {msg.text && (
-                              <p
-                                className={`${messageTextSizeClass} whitespace-pre-wrap break-words`}
+                            ) : (
+                              <div
+                                className={
+                                  shoulderShield ? 'shoulder-shield-blur' : undefined
+                                }
                               >
-                                {msg.text}
-                              </p>
+                                {msg.replyTo && (
+                                  <button
+                                    type="button"
+                                    onClick={() => scrollToMessage(msg.replyTo!.id)}
+                                    className="mb-2 block w-full text-left rounded-xl bg-black/25 backdrop-blur-md border border-white/[0.11] px-3 py-1.5 hover:bg-black/40 transition-colors cursor-pointer"
+                                  >
+                                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300 truncate">
+                                      <Reply className="h-3 w-3 shrink-0 opacity-80" />
+                                      <span className="truncate">
+                                        {msg.replyTo.senderName}
+                                      </span>
+                                    </span>
+                                    <span className="block text-xs text-zinc-300 truncate mt-0.5">
+                                      {msg.replyTo.excerpt}
+                                    </span>
+                                  </button>
+                                )}
+
+                                {msg.attachment?.kind === 'audio' ? (
+                                  <div className={msg.text.trim() ? 'mb-2' : ''}>
+                                    <VoiceMessagePlayer
+                                      attachment={msg.attachment}
+                                      isMine={isMine}
+                                    />
+                                  </div>
+                                ) : (
+                                  msg.attachment && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setLightboxMedia(msg.attachment!)}
+                                      title="Agrandir l’image"
+                                      className={`group/media relative block overflow-hidden rounded-xl border border-white/[0.1] bg-black/35 cursor-zoom-in ${
+                                        msg.text.trim() ? 'mb-2' : ''
+                                      }`}
+                                    >
+                                      <img
+                                        src={msg.attachment.dataUrl}
+                                        alt={msg.attachment.name || 'Média chiffré'}
+                                        className="max-h-72 w-auto max-w-full object-contain block"
+                                      />
+                                      {msg.attachment.mimeType === 'image/gif' && (
+                                        <span className="absolute top-2 left-2 rounded-md bg-black/70 backdrop-blur-sm border border-white/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
+                                          GIF
+                                        </span>
+                                      )}
+                                    </button>
+                                  )
+                                )}
+
+                                {msg.text && (
+                                  <p
+                                    className={`${messageTextSizeClass} whitespace-pre-wrap break-words`}
+                                  >
+                                    {msg.text}
+                                  </p>
+                                )}
+                              </div>
                             )}
 
                             {inspectorMode && (
@@ -2900,6 +3490,41 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                 </span>
                               )}
 
+                              {msg.unlockAt && !isTimeLocked && !msg.decryptionError && (
+                                <span
+                                  title={`Capsule temporelle ouverte (${formatUnlockDateLabel(
+                                    msg.unlockAt
+                                  )})`}
+                                  className="inline-flex items-center text-amber-300/80"
+                                >
+                                  <Hourglass className="h-3 w-3" />
+                                </span>
+                              )}
+
+                              {msg.invisibleInk && !isTimeLocked && !msg.decryptionError && (
+                                <button
+                                  type="button"
+                                  onClick={() => revealInkMessage(msg.id)}
+                                  title={
+                                    isInkVeiled
+                                      ? 'Révéler le message à encre invisible'
+                                      : 'Re-voiler immédiatement'
+                                  }
+                                  aria-label={
+                                    isInkVeiled
+                                      ? 'Révéler le message à encre invisible'
+                                      : 'Re-voiler le message'
+                                  }
+                                  className="inline-flex items-center text-zinc-300 hover:text-white cursor-pointer"
+                                >
+                                  {isInkVeiled ? (
+                                    <Eye className="h-3 w-3" />
+                                  ) : (
+                                    <EyeOff className="h-3 w-3 text-emerald-300" />
+                                  )}
+                                </button>
+                              )}
+
                               {msg.expiresAt !== null && (
                                 <span className="inline-flex items-center gap-1 font-mono text-amber-300/90 tabular-nums">
                                   <Clock className="h-3 w-3" />
@@ -2921,6 +3546,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                               )}
 
                               {!msg.decryptionError &&
+                                !isTimeLocked &&
+                                !isInkVeiled &&
                                 (msg.text.trim().length > 0 || Boolean(msg.attachment)) && (
                                 <button
                                   type="button"
@@ -2936,7 +3563,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                 </button>
                               )}
 
-                              {!msg.decryptionError && msg.text.trim().length > 0 && (
+                              {!msg.decryptionError &&
+                                !isTimeLocked &&
+                                !isInkVeiled &&
+                                msg.text.trim().length > 0 && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2965,7 +3595,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                 </button>
                               )}
 
-                              {tts.supported && !msg.decryptionError && msg.text.trim().length > 0 && (
+                              {tts.supported &&
+                                !msg.decryptionError &&
+                                !isTimeLocked &&
+                                !isInkVeiled &&
+                                msg.text.trim().length > 0 && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -3119,9 +3753,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         </p>
                         <p className="text-zinc-400 truncate">
                           {replyingTo.text ||
-                            (replyingTo.attachment?.mimeType === 'image/gif'
-                              ? 'GIF animé'
-                              : 'Image')}
+                            (replyingTo.attachment?.kind === 'audio'
+                              ? 'Message vocal'
+                              : replyingTo.attachment?.mimeType === 'image/gif'
+                                ? 'GIF animé'
+                                : 'Image')}
                         </p>
                       </div>
                       <button
@@ -3168,30 +3804,191 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   )}
 
                   {ephemeralMenuOpen && (
-                    <div className="animate-tab-enter glass-surface mb-2 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2">
-                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-300 whitespace-nowrap">
-                        <Clock className="h-3.5 w-3.5 text-amber-300 shrink-0" />
-                        <span>Suppression automatique</span>
-                      </span>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {EPHEMERAL_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => {
-                              setEphemeralDuration(opt.value);
-                              setEphemeralMenuOpen(false);
-                            }}
-                            className={`min-h-[30px] rounded-lg px-2.5 py-1 text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
-                              ephemeralDuration === opt.value
-                                ? 'glass-control-active text-white'
-                                : 'text-zinc-400 hover:bg-white/[0.06] hover:text-white'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                    <div className="animate-tab-enter glass-surface mb-2 rounded-2xl p-3 space-y-3">
+                      {/* 1. Suppression automatique */}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-300 whitespace-nowrap">
+                          <Clock className="h-3.5 w-3.5 text-amber-300 shrink-0" />
+                          <span>Suppression auto</span>
+                        </span>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {EPHEMERAL_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setEphemeralDuration(opt.value)}
+                              className={`min-h-[30px] rounded-lg px-2.5 py-1 text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                                ephemeralDuration === opt.value
+                                  ? 'glass-control-active text-white'
+                                  : 'text-zinc-400 hover:bg-white/[0.06] hover:text-white'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
+
+                      <div className="glass-hairline" />
+
+                      {/* 2. Encre invisible */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-200">
+                            <EyeOff className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
+                            <span>Encre invisible</span>
+                          </span>
+                          <span className="block text-[10px] text-zinc-400">
+                            Voile opaque jusqu’au toucher (8 s)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setInvisibleInk((v) => !v)}
+                          aria-pressed={invisibleInk}
+                          className={`min-h-[30px] rounded-lg px-3 py-1 text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                            invisibleInk
+                              ? 'border border-emerald-400/40 bg-emerald-500/20 text-emerald-200'
+                              : 'glass-control text-zinc-300 hover:text-white'
+                          }`}
+                        >
+                          {invisibleInk ? 'Activée' : 'Désactivée'}
+                        </button>
+                      </div>
+
+                      <div className="glass-hairline" />
+
+                      {/* 3. Capsule temporelle */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-200">
+                            <Hourglass className="h-3.5 w-3.5 text-amber-300 shrink-0" />
+                            <span>Capsule temporelle</span>
+                          </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {[
+                              { label: 'Immédiat', ts: null },
+                              { label: '+1 min', ts: () => Date.now() + 60_000 },
+                              { label: '+15 min', ts: () => Date.now() + 900_000 },
+                              { label: '+1 h', ts: () => Date.now() + 3_600_000 },
+                              {
+                                label: 'Demain 09h',
+                                ts: () => {
+                                  const d = new Date();
+                                  d.setDate(d.getDate() + 1);
+                                  d.setHours(9, 0, 0, 0);
+                                  return d.getTime();
+                                },
+                              },
+                            ].map((preset) => {
+                              const active = preset.ts === null && unlockAt === null;
+                              return (
+                                <button
+                                  key={preset.label}
+                                  type="button"
+                                  onClick={() => {
+                                    if (preset.ts === null) {
+                                      setUnlockAt(null);
+                                      setCustomUnlockLocal('');
+                                    } else {
+                                      const nextTs = preset.ts();
+                                      setUnlockAt(nextTs);
+                                      setCustomUnlockLocal(toDatetimeLocalValue(nextTs));
+                                    }
+                                  }}
+                                  className={`min-h-[30px] rounded-lg px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                                    active
+                                      ? 'glass-control-active text-white'
+                                      : 'text-zinc-400 hover:bg-white/[0.06] hover:text-white'
+                                  }`}
+                                >
+                                  {preset.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <label
+                            htmlFor="custom-unlock-datetime"
+                            className="text-[10px] text-zinc-400 shrink-0"
+                          >
+                            Date précise :
+                          </label>
+                          <input
+                            id="custom-unlock-datetime"
+                            type="datetime-local"
+                            min={toDatetimeLocalValue(Date.now() + 60_000)}
+                            value={customUnlockLocal}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCustomUnlockLocal(val);
+                              if (!val) {
+                                setUnlockAt(null);
+                                return;
+                              }
+                              const parsed = new Date(val).getTime();
+                              if (!Number.isNaN(parsed) && parsed > Date.now() + 10_000) {
+                                setUnlockAt(parsed);
+                              }
+                            }}
+                            className="glass-input rounded-lg px-2 py-1 text-[11px] font-mono text-white [color-scheme:dark] focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {(ephemeralDuration > 0 ||
+                    invisibleInk ||
+                    (unlockAt && unlockAt > nowTick)) && (
+                    <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+                      {ephemeralDuration > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setEphemeralDuration(0)}
+                          title="Désactiver la suppression automatique"
+                          className="inline-flex items-center gap-1 rounded-lg border border-amber-400/30 bg-amber-500/15 px-2 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-500/25 cursor-pointer"
+                        >
+                          <Clock className="h-3 w-3 shrink-0" />
+                          <span>
+                            {
+                              EPHEMERAL_OPTIONS.find(
+                                (o) => o.value === ephemeralDuration
+                              )?.label
+                            }
+                          </span>
+                          <X className="h-3 w-3 opacity-80" />
+                        </button>
+                      )}
+                      {invisibleInk && (
+                        <button
+                          type="button"
+                          onClick={() => setInvisibleInk(false)}
+                          title="Désactiver l’encre invisible"
+                          className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-2 py-1 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                        >
+                          <EyeOff className="h-3 w-3 shrink-0" />
+                          <span>Encre invisible</span>
+                          <X className="h-3 w-3 opacity-80" />
+                        </button>
+                      )}
+                      {unlockAt && unlockAt > nowTick && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUnlockAt(null);
+                            setCustomUnlockLocal('');
+                          }}
+                          title="Retirer la capsule temporelle"
+                          className="inline-flex items-center gap-1 rounded-lg border border-sky-400/30 bg-sky-500/15 px-2 py-1 text-[11px] font-medium text-sky-200 hover:bg-sky-500/25 cursor-pointer"
+                        >
+                          <Hourglass className="h-3 w-3 shrink-0" />
+                          <span>Capsule · {formatUnlockDateLabel(unlockAt)}</span>
+                          <X className="h-3 w-3 opacity-80" />
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -3205,111 +4002,181 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     onChange={handleComposerFileChange}
                     className="hidden"
                   />
-                  <form
-                    onSubmit={handleSendMessage}
-                    className="flex items-end gap-2 sm:gap-2.5"
-                  >
-                    <div className="flex-1 glass-input rounded-2xl px-2 sm:px-3 py-1.5 flex items-end gap-1.5">
-                      <button
-                        type="button"
-                        disabled={preparingAttachment || sending}
-                        onClick={() => chatMediaInputRef.current?.click()}
-                        title="Joindre une image ou un GIF animé"
-                        aria-label="Joindre une image ou un GIF animé"
-                        className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                      >
-                        {preparingAttachment ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
-                        )}
-                      </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setEphemeralMenuOpen((v) => !v)}
-                        aria-expanded={ephemeralMenuOpen}
-                        title={
-                          ephemeralDuration > 0
-                            ? `Message éphémère actif (${EPHEMERAL_OPTIONS.find((o) => o.value === ephemeralDuration)?.label})`
-                            : 'Régler le délai de suppression automatique'
-                        }
-                        aria-label="Régler le délai éphémère"
-                        className={`h-9 flex items-center justify-center gap-1 rounded-xl transition-all cursor-pointer shrink-0 ${
-                          ephemeralDuration > 0
-                            ? 'px-2.5 border border-amber-400/35 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
-                            : ephemeralMenuOpen
-                              ? 'w-9 bg-white/[0.1] text-white'
-                              : 'w-9 text-zinc-400 hover:bg-white/[0.08] hover:text-white'
-                        }`}
-                      >
-                        <Clock className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                        {ephemeralDuration > 0 && (
-                          <span className="font-mono text-[11px] font-medium">
-                            {ephemeralDuration === 30
-                              ? '30s'
-                              : ephemeralDuration === 300
-                                ? '5m'
-                                : '24h'}
+                  {isRecordingVoice || processingVoice ? (
+                    <div className="flex items-center gap-2 sm:gap-2.5">
+                      <div className="flex-1 glass-input rounded-2xl px-3 py-2 flex items-center justify-between gap-2 min-h-[44px]">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {processingVoice ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-emerald-300 shrink-0" />
+                          ) : (
+                            <span
+                              aria-hidden="true"
+                              className="h-2.5 w-2.5 rounded-full bg-rose-400 animate-pulse shrink-0"
+                            />
+                          )}
+                          <span className="font-mono text-xs font-semibold text-white tabular-nums">
+                            {processingVoice
+                              ? voiceMaskEnabled
+                                ? 'Anonymisation...'
+                                : 'Chiffrement...'
+                              : formatAudioDuration(recordingSec)}
                           </span>
-                        )}
-                      </button>
+                        </div>
 
-                      <textarea
-                        ref={composerRef}
-                        rows={1}
-                        value={composerText}
-                        onPaste={handleComposerPaste}
-                        onChange={(e) => {
-                          handleComposerChange(e.target.value);
-                          const el = composerRef.current;
-                          if (el) {
-                            el.style.height = 'auto';
-                            el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSendMessage();
-                            if (composerRef.current) {
-                              composerRef.current.style.height = 'auto';
-                            }
-                          }
-                        }}
-                        placeholder={
-                          ephemeralDuration > 0
-                            ? `Message éphémère (${
-                                EPHEMERAL_OPTIONS.find(
-                                  (o) => o.value === ephemeralDuration
-                                )?.label
-                              })...`
-                            : activeGroup
-                              ? `Écrire dans ${activeGroup.name}...`
-                              : 'Message, image ou GIF...'
-                        }
-                        className="w-full py-1.5 resize-none bg-transparent text-sm leading-relaxed text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
-                      />
+                        {!processingVoice && (
+                          <button
+                            type="button"
+                            onClick={() => setVoiceMaskEnabled((v) => !v)}
+                            aria-pressed={voiceMaskEnabled}
+                            title="Modifie le timbre de votre voix avant chiffrement"
+                            className={`min-h-[30px] inline-flex items-center gap-1.5 rounded-xl px-2.5 text-[11px] font-medium transition-all cursor-pointer shrink-0 ${
+                              voiceMaskEnabled
+                                ? 'border border-emerald-400/40 bg-emerald-500/20 text-emerald-200'
+                                : 'glass-control text-zinc-300 hover:text-white'
+                            }`}
+                          >
+                            <Shield className="h-3 w-3 shrink-0" />
+                            <span className="hidden sm:inline">Voix anonyme</span>
+                            <span className="sm:hidden">Anonyme</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {!processingVoice && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={cancelVoiceRecording}
+                            aria-label="Annuler la note vocale"
+                            title="Annuler"
+                            className="glass-control h-[44px] w-[44px] flex items-center justify-center rounded-2xl text-zinc-300 hover:text-rose-300 shrink-0 cursor-pointer"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={finishAndSendVoiceRecording}
+                            aria-label="Chiffrer et envoyer la note vocale"
+                            className="btn-specular flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl px-4 sm:px-5 text-sm font-medium transition-all active:scale-[0.97] cursor-pointer"
+                          >
+                            <Send className="h-4 w-4" />
+                            <span className="hidden sm:inline">Envoyer</span>
+                          </button>
+                        </>
+                      )}
                     </div>
-                    <button
-                      type="submit"
-                      disabled={
-                        (!composerText.trim() && !pendingAttachment) ||
-                        sending ||
-                        preparingAttachment
-                      }
-                      onClick={() => {
-                        if (composerRef.current) {
-                          composerRef.current.style.height = 'auto';
-                        }
-                      }}
-                      aria-label="Envoyer le message"
-                      className="btn-specular flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl px-4 sm:px-5 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                  ) : (
+                    <form
+                      onSubmit={handleSendMessage}
+                      className="flex items-end gap-2 sm:gap-2.5"
                     >
-                      <Send className="h-4 w-4" />
-                      <span className="hidden sm:inline">Envoyer</span>
-                    </button>
-                  </form>
+                      <div className="flex-1 glass-input rounded-2xl px-1.5 sm:px-2.5 py-1.5 flex items-end gap-1">
+                        <button
+                          type="button"
+                          disabled={preparingAttachment || sending}
+                          onClick={() => chatMediaInputRef.current?.click()}
+                          title="Joindre une image ou un GIF animé"
+                          aria-label="Joindre une image ou un GIF animé"
+                          className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                        >
+                          {preparingAttachment ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={preparingAttachment || sending}
+                          onClick={() => void startVoiceRecording()}
+                          title="Enregistrer une note vocale chiffrée"
+                          aria-label="Enregistrer une note vocale chiffrée"
+                          className="h-9 w-9 flex items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.08] hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                        >
+                          <Mic className="h-4 w-4" strokeWidth={1.75} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEphemeralMenuOpen((v) => !v)}
+                          aria-expanded={ephemeralMenuOpen}
+                          title="Confidentialité du message (éphémère, encre invisible, capsule)"
+                          aria-label="Options de confidentialité du message"
+                          className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all cursor-pointer shrink-0 ${
+                            ephemeralDuration > 0 ||
+                            invisibleInk ||
+                            (unlockAt !== null && unlockAt > nowTick)
+                              ? 'border border-amber-400/35 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+                              : ephemeralMenuOpen
+                                ? 'bg-white/[0.1] text-white'
+                                : 'text-zinc-400 hover:bg-white/[0.08] hover:text-white'
+                          }`}
+                        >
+                          <Clock className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                        </button>
+
+                        <textarea
+                          ref={composerRef}
+                          rows={1}
+                          value={composerText}
+                          onPaste={handleComposerPaste}
+                          onChange={(e) => {
+                            handleComposerChange(e.target.value);
+                            const el = composerRef.current;
+                            if (el) {
+                              el.style.height = 'auto';
+                              el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendMessage();
+                              if (composerRef.current) {
+                                composerRef.current.style.height = 'auto';
+                              }
+                            }
+                          }}
+                          placeholder={
+                            invisibleInk
+                              ? 'Message à encre invisible...'
+                              : unlockAt && unlockAt > nowTick
+                                ? 'Capsule temporelle...'
+                                : ephemeralDuration > 0
+                                  ? `Message éphémère (${
+                                      EPHEMERAL_OPTIONS.find(
+                                        (o) => o.value === ephemeralDuration
+                                      )?.label
+                                    })...`
+                                  : activeGroup
+                                    ? `Écrire dans ${activeGroup.name}...`
+                                    : 'Message, image ou vocal...'
+                          }
+                          className="w-full py-1.5 pl-1 resize-none bg-transparent text-sm leading-relaxed text-white placeholder:text-zinc-500 focus:outline-none max-h-32"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={
+                          (!composerText.trim() && !pendingAttachment) ||
+                          sending ||
+                          preparingAttachment
+                        }
+                        onClick={() => {
+                          if (composerRef.current) {
+                            composerRef.current.style.height = 'auto';
+                          }
+                        }}
+                        aria-label="Envoyer le message"
+                        className="btn-specular flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl px-4 sm:px-5 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                      >
+                        <Send className="h-4 w-4" />
+                        <span className="hidden sm:inline">Envoyer</span>
+                      </button>
+                    </form>
+                  )}
                 </>
               )}
               </footer>
@@ -3673,6 +4540,446 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* Right-Side Liquid Glass Utility & Theme Drawer */}
+      {utilityMenuOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex justify-end p-2.5 sm:p-3.5"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu et options"
+        >
+          <div
+            aria-hidden="true"
+            onClick={() => setUtilityMenuOpen(false)}
+            className="fixed inset-0 bg-black/45 backdrop-blur-[2px] animate-backdrop-enter"
+          />
+
+          <div className="glass-liquid animate-panel-enter relative z-10 w-[min(350px,calc(100vw-1.25rem))] max-h-full flex flex-col self-start rounded-3xl shadow-2xl overflow-hidden">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <UserAvatar user={session.user} size="sm" />
+                <div className="min-w-0">
+                  <p className="font-[family-name:var(--font-display)] text-sm font-semibold text-white truncate">
+                    {session.user.displayName}
+                  </p>
+                  <p className="font-mono text-[11px] text-zinc-400 truncate">
+                    {session.user.handle}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUtilityMenuOpen(false)}
+                aria-label="Fermer le menu"
+                className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-zinc-300 hover:text-white shrink-0 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Menu Actions */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {/* Theme Selector (Inline Expandable) */}
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setUtilityThemeExpanded((v) => !v)}
+                  aria-expanded={utilityThemeExpanded}
+                  className="w-full min-h-[48px] flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-white/[0.05] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white shrink-0">
+                      <Palette className="h-4 w-4" strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <span className="block text-xs font-semibold text-white">
+                        Thème de l’interface
+                      </span>
+                      <span className="flex items-center gap-1.5 mt-0.5 text-[11px] text-zinc-400 truncate">
+                        <span
+                          aria-hidden="true"
+                          className={`h-2 w-2 rounded-full shrink-0 ${currentAppTheme.accentSwatch}`}
+                        />
+                        <span className="truncate">
+                          {currentAppTheme.animated
+                            ? `Animé · ${currentAppTheme.label}`
+                            : currentAppTheme.label}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                  {utilityThemeExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-zinc-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-zinc-400 shrink-0" />
+                  )}
+                </button>
+
+                {utilityThemeExpanded && (
+                  <div className="px-3 pb-3 pt-1 border-t border-white/[0.07]">
+                    <ThemeGrid
+                      compact
+                      value={appTheme}
+                      onChange={(next) => {
+                        setAppTheme(next);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Shoulder Shield (Anti-Épaule) */}
+              <button
+                type="button"
+                onClick={() => setShoulderShield((v) => !v)}
+                aria-pressed={shoulderShield}
+                className="w-full min-h-[48px] flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/[0.06] transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className={`glass-control h-9 w-9 flex items-center justify-center rounded-xl shrink-0 ${
+                      shoulderShield
+                        ? 'text-emerald-400 border-emerald-400/30'
+                        : 'text-white'
+                    }`}
+                  >
+                    <EyeOff className="h-4 w-4" strokeWidth={1.75} />
+                  </span>
+                  <div className="min-w-0">
+                    <span className="block text-xs font-semibold text-white">
+                      Bouclier anti-épaule
+                    </span>
+                    <span className="block text-[11px] text-zinc-400 truncate">
+                      Floute les aperçus &amp; bulles (Alt+V)
+                    </span>
+                  </div>
+                </div>
+                <span
+                  className={`text-[11px] font-medium shrink-0 ${
+                    shoulderShield ? 'text-emerald-300' : 'text-zinc-500'
+                  }`}
+                >
+                  {shoulderShield ? 'Actif' : 'Off'}
+                </span>
+              </button>
+
+              {/* Camouflage Mode (Instant Calculator Screen with Secret Combination) */}
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
+                <div className="flex items-center gap-1 pr-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      ttsStopRef.current();
+                      setUtilityMenuOpen(false);
+                      setCamouflageMode(true);
+                    }}
+                    className="flex-1 min-w-0 min-h-[48px] flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.06] transition-colors cursor-pointer"
+                  >
+                    <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white shrink-0">
+                      <Calculator className="h-4 w-4" strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <span className="block text-xs font-semibold text-white">
+                        Mode camouflage
+                      </span>
+                      <span className="block text-[11px] text-zinc-400 truncate">
+                        Retour : <span className="font-mono text-zinc-200">{camouflageCode}=</span>
+                      </span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCamouflageConfigOpen((prev) => {
+                        const next = !prev;
+                        if (next) {
+                          setCamouflageCodeDraft(camouflageCode);
+                          setCamouflageCodeError(null);
+                        }
+                        return next;
+                      });
+                    }}
+                    aria-expanded={camouflageConfigOpen}
+                    title="Personnaliser la combinaison secrète de retour"
+                    className="glass-control h-8 px-2.5 rounded-xl text-[11px] font-medium text-zinc-300 hover:text-white shrink-0 cursor-pointer"
+                  >
+                    {camouflageConfigOpen ? 'Fermer' : 'Code'}
+                  </button>
+                </div>
+
+                {camouflageConfigOpen && (
+                  <div className="px-3 pb-3 pt-2 border-t border-white/[0.07] space-y-2">
+                    <p className="text-[11px] leading-relaxed text-zinc-400">
+                      Tapez cette combinaison suivie de <span className="font-mono text-white">=</span> sur la calculatrice pour revenir dans HOI :
+                    </p>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const clean = normalizeCamouflageCode(camouflageCodeDraft);
+                        if (clean.length < 3) {
+                          setCamouflageCodeError('Minimum 3 touches (ex. 1337 ou 42×2).');
+                          return;
+                        }
+                        setCamouflageCode(clean);
+                        setCamouflageCodeError(null);
+                        setCamouflageConfigOpen(false);
+                        try {
+                          window.localStorage.setItem(CAMOUFLAGE_CODE_PREF_KEY, clean);
+                        } catch {
+                          // Ignore storage error
+                        }
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <input
+                        type="text"
+                        value={camouflageCodeDraft}
+                        onChange={(e) => {
+                          setCamouflageCodeDraft(normalizeCamouflageCode(e.target.value));
+                          setCamouflageCodeError(null);
+                        }}
+                        placeholder="Ex: 1337"
+                        maxLength={12}
+                        aria-label="Combinaison secrète de la calculatrice"
+                        className="glass-input min-w-0 flex-1 rounded-xl px-2.5 py-1.5 font-mono text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        className="btn-specular h-8 px-3 rounded-xl text-[11px] font-semibold shrink-0 cursor-pointer"
+                      >
+                        Valider
+                      </button>
+                    </form>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-zinc-500 mr-1">Symboles :</span>
+                      {(['+', '-', '×', '÷'] as const).map((sym) => (
+                        <button
+                          key={sym}
+                          type="button"
+                          onClick={() =>
+                            setCamouflageCodeDraft((prev) =>
+                              normalizeCamouflageCode(`${prev}${sym}`)
+                            )
+                          }
+                          className="glass-control h-7 w-7 rounded-lg font-mono text-xs text-zinc-200 hover:text-white cursor-pointer"
+                        >
+                          {sym}
+                        </button>
+                      ))}
+                    </div>
+                    {camouflageCodeError && (
+                      <p className="text-[11px] text-rose-300">{camouflageCodeError}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Notifications */}
+              <button
+                type="button"
+                onClick={() => {
+                  setUtilityMenuOpen(false);
+                  setIsNotificationsModalOpen(true);
+                }}
+                className="w-full min-h-[48px] flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/[0.06] transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className={`glass-control h-9 w-9 flex items-center justify-center rounded-xl shrink-0 ${
+                      push.isSubscribed && push.permission === 'granted'
+                        ? 'text-emerald-400 border-emerald-400/30'
+                        : 'text-white'
+                    }`}
+                  >
+                    {push.isSubscribed && push.permission === 'granted' ? (
+                      <BellRing className="h-4 w-4" strokeWidth={1.75} />
+                    ) : (
+                      <Bell className="h-4 w-4" strokeWidth={1.75} />
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <span className="block text-xs font-semibold text-white">
+                      Notifications push
+                    </span>
+                    <span className="block text-[11px] text-zinc-400 truncate">
+                      Alertes discrètes en temps réel
+                    </span>
+                  </div>
+                </div>
+                <span
+                  className={`text-[11px] font-medium shrink-0 ${
+                    push.isSubscribed && push.permission === 'granted'
+                      ? 'text-emerald-300'
+                      : 'text-zinc-500'
+                  }`}
+                >
+                  {push.isSubscribed && push.permission === 'granted' ? 'Actives' : 'Off'}
+                </span>
+              </button>
+
+              {/* Install App */}
+              {!pwaInstall.isInstalled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUtilityMenuOpen(false);
+                    void handleInstallTrigger();
+                  }}
+                  className="w-full min-h-[48px] flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/[0.06] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white shrink-0">
+                      <Download className="h-4 w-4" strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <span className="block text-xs font-semibold text-white">
+                        Installer l’application
+                      </span>
+                      <span className="block text-[11px] text-zinc-400 truncate">
+                        Huawei, Android, iOS &amp; PC
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-zinc-500 shrink-0" />
+                </button>
+              )}
+
+              {/* Profile & Bubble Appearance */}
+              <button
+                type="button"
+                onClick={() => {
+                  setUtilityMenuOpen(false);
+                  setIsProfileModalOpen(true);
+                }}
+                className="w-full min-h-[48px] flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/[0.06] transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white shrink-0">
+                    <User className="h-4 w-4" strokeWidth={1.75} />
+                  </span>
+                  <div className="min-w-0">
+                    <span className="block text-xs font-semibold text-white">
+                      Mon profil &amp; apparence
+                    </span>
+                    <span className="block text-[11px] text-zinc-400 truncate">
+                      Avatar, bannière, style des bulles
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-zinc-500 shrink-0" />
+              </button>
+
+              {/* Presentation */}
+              {onOpenPresentation && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUtilityMenuOpen(false);
+                    onOpenPresentation();
+                  }}
+                  className="w-full min-h-[48px] flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/[0.06] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="glass-control h-9 w-9 flex items-center justify-center rounded-xl text-white shrink-0">
+                      <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <span className="block text-xs font-semibold text-white">
+                        Découvrir HOI
+                      </span>
+                      <span className="block text-[11px] text-zinc-400 truncate">
+                        Présentation &amp; chiffrement
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-zinc-500 shrink-0" />
+                </button>
+              )}
+            </div>
+
+            {/* Footer: Lock / Sign out */}
+            <div className="p-3 pt-2 border-t border-white/[0.08]">
+              <button
+                type="button"
+                onClick={() => {
+                  setUtilityMenuOpen(false);
+                  handleLockSession();
+                }}
+                className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-2xl border border-rose-400/25 bg-rose-500/10 px-4 text-xs font-semibold text-rose-200 hover:bg-rose-500/20 hover:border-rose-400/40 transition-all cursor-pointer"
+              >
+                <Lock className="h-4 w-4 shrink-0" strokeWidth={1.85} />
+                <span>Se déconnecter / Verrouiller</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Conversation from Home Confirmation Dialog */}
+      {pendingDeleteThread && (
+        <div
+          className="animate-backdrop-enter fixed inset-0 z-[75] flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-thread-title"
+          onClick={() => !deletingThread && setPendingDeleteThread(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="glass-liquid animate-panel-enter max-w-sm w-full rounded-3xl p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start gap-3">
+              <span className="h-10 w-10 rounded-2xl border border-rose-400/30 bg-rose-500/15 text-rose-300 flex items-center justify-center shrink-0">
+                <Trash2 className="h-4 w-4" strokeWidth={1.85} />
+              </span>
+              <div className="min-w-0">
+                <h3
+                  id="delete-thread-title"
+                  className="font-[family-name:var(--font-display)] text-base font-semibold text-white"
+                >
+                  Supprimer de l’accueil
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                  La conversation avec{' '}
+                  <span className="font-semibold text-white">
+                    {pendingDeleteThread.label}
+                  </span>{' '}
+                  ne s’affichera plus dans votre accueil. Elle réapparaîtra si un nouveau message arrive ou si vous la rouvrez.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={deletingThread}
+                onClick={() => setPendingDeleteThread(null)}
+                className="glass-control min-h-[42px] rounded-xl px-4 text-xs font-medium text-zinc-200 hover:text-white disabled:opacity-50 cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={deletingThread}
+                onClick={() => void handleConfirmDeleteThread()}
+                className="min-h-[42px] inline-flex items-center gap-1.5 rounded-xl border border-rose-400/35 bg-rose-500/80 px-4 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {deletingThread && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                <span>Supprimer</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {camouflageMode && (
+        <CamouflageScreen
+          secretCode={camouflageCode}
+          onExit={() => setCamouflageMode(false)}
+        />
       )}
     </div>
   );

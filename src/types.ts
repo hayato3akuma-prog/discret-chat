@@ -35,10 +35,12 @@ export type BubbleStyleKey = 'glass' | 'solid' | 'outline' | 'elevated';
 export type MessageTextSize = 'compact' | 'normal' | 'large';
 
 export interface ChatAttachment {
-  kind: 'image';
+  kind: 'image' | 'audio';
   dataUrl: string;
   mimeType: string;
   name?: string;
+  durationSec?: number;
+  voiceMasked?: boolean;
 }
 
 export type BannerPresetKey =
@@ -153,6 +155,8 @@ export interface DecryptedMessage {
   text: string;
   replyTo?: ReplyReference;
   attachment?: ChatAttachment;
+  invisibleInk?: boolean;
+  unlockAt?: number | null;
   timestamp: number;
   expiresAt: number | null;
   readAt: number | null;

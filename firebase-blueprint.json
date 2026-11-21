@@ -270,6 +270,31 @@
       },
       "required": ["targetUserId", "nickname", "createdAt", "updatedAt"]
     },
+    "HiddenThread": {
+      "title": "HiddenThread",
+      "description": "Private user-scoped marker hiding a conversation or group from the home thread list until a newer message arrives.",
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hiddenAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["threadId", "hiddenAtMs", "createdAt", "updatedAt"]
+    },
     "SearchBucket": {
       "title": "SearchBucket",
       "description": "Bounded prefix bucket (up to 12 userIds) enabling handle/pseudonym lookup without blanket collection list queries.",
@@ -772,6 +797,10 @@
     "/users/{userId}/friendAliases/{targetUserId}": {
       "schema": { "$ref": "#/entities/FriendAlias" },
       "description": "Owner-only private friend/contact custom nicknames."
+    },
+    "/users/{userId}/hiddenThreads/{threadId}": {
+      "schema": { "$ref": "#/entities/HiddenThread" },
+      "description": "Owner-only hidden conversation/group markers for the home list."
     },
     "/publicProfiles/{userId}": {
       "schema": { "$ref": "#/entities/PublicProfile" },

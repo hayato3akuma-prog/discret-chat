@@ -1930,6 +1930,80 @@ export async function removeFriendAliasInFirestore(
   }
 }
 
+// ============================================================================
+// Hidden Conversations / Groups (Remove from Home List)
+// ============================================================================
+
+export function subscribeHiddenThreads(
+  myUid: string,
+  onChange: (hiddenMap: Record<string, number>) => void
+): Unsubscribe {
+  const path = `users/${myUid}/hiddenThreads`;
+  return onSnapshot(
+    collection(db, 'users', myUid, 'hiddenThreads'),
+    (snap) => {
+      const next: Record<string, number> = {};
+      for (const d of snap.docs) {
+        const data = d.data() as Record<string, unknown>;
+        const tid = String(data.threadId || d.id);
+        const ts = typeof data.hiddenAtMs === 'number' ? data.hiddenAtMs : 0;
+        if (tid && ts >= 0) {
+          next[tid] = ts;
+        }
+      }
+      onChange(next);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  );
+}
+
+export async function hideThreadInFirestore(
+  myUid: string,
+  threadId: string,
+  hiddenAtMs: number = Date.now()
+): Promise<void> {
+  if (!myUid || !threadId) return;
+  const ref = doc(db, 'users', myUid, 'hiddenThreads', threadId);
+  const path = `users/${myUid}/hiddenThreads/${threadId}`;
+  try {
+    const existing = await getDoc(ref);
+    if (existing.exists()) {
+      await updateDoc(ref, {
+        hiddenAtMs,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, {
+        threadId,
+        hiddenAtMs,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function unhideThreadInFirestore(
+  myUid: string,
+  threadId: string
+): Promise<void> {
+  if (!myUid || !threadId) return;
+  const ref = doc(db, 'users', myUid, 'hiddenThreads', threadId);
+  const path = `users/${myUid}/hiddenThreads/${threadId}`;
+  try {
+    const existing = await getDoc(ref);
+    if (existing.exists()) {
+      await deleteDoc(ref);
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
 export async function dispatchPushNotification(payload: {
   targetUserIds: string[];
   title: string;
